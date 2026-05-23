@@ -232,18 +232,45 @@ def latest_rates(pickup_date: str | None = None) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def list_pickup_dates() -> list[sqlite3.Row]:
-    """Devuelve los pickup_date distintos con metadata para los tabs del dashboard."""
+def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
+    """Pickup_dates con observaciones recientes (default últimas 2h).
+
+    Para cada pickup_date toma `rental_days`/`dropoff_date` de la observación
+    más reciente (refleja la configuración activa del scheduler, no el legacy).
+    """
     with get_conn() as c:
         return c.execute(
-            """SELECT pickup_date,
-                      MIN(rental_days)     AS rental_days,
-                      MAX(dropoff_date)    AS dropoff_date,
-                      COUNT(*)             AS rates_count,
-                      MAX(captured_at)     AS last_captured
-                 FROM rates
-                GROUP BY pickup_date
-                ORDER BY pickup_date ASC"""
+            """
+            WITH latest_per_pickup AS (
+                SELECT pickup_date,
+                       rental_days,
+                       dropoff_date,
+                       captured_at,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY pickup_date
+                           ORDER BY captured_at DESC
+                       ) AS rn
+                  FROM rates
+            ),
+            counts AS (
+                SELECT pickup_date,
+                       COUNT(*)        AS rates_count,
+                       MAX(captured_at) AS last_captured
+                  FROM rates
+                 GROUP BY pickup_date
+            )
+            SELECT l.pickup_date,
+                   l.rental_days,
+                   l.dropoff_date,
+                   c.rates_count,
+                   c.last_captured
+              FROM latest_per_pickup l
+              JOIN counts c USING (pickup_date)
+             WHERE l.rn = 1
+               AND c.last_captured > datetime('now', ?)
+             ORDER BY l.pickup_date ASC
+            """,
+            (f"-{max_age_hours} hours",),
         ).fetchall()
 
 

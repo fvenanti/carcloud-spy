@@ -59,8 +59,8 @@ class HertzAdapter(BaseAdapter):
             "locale": "es",
             "pickup_place": BRANCH_BARILOCHE_AIRPORT,
             "return_place": BRANCH_BARILOCHE_AIRPORT,
-            "pickup_date":  f"{query.pickup_date.isoformat()}T10:00:00",
-            "return_date":  f"{query.dropoff_date.isoformat()}T10:00:00",
+            "pickup_date":  query.pickup_iso(default_hour=10),
+            "return_date":  query.dropoff_iso(default_hour=10),
             "promotionalCode": "",
         }
         headers = {

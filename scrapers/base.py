@@ -30,6 +30,25 @@ class RateQuery:
     def rental_days(self) -> int:
         return max(1, (self.dropoff_date - self.pickup_date).days)
 
+    def pickup_iso(self, default_hour: int = 10) -> str:
+        """ISO datetime para el pickup.
+
+        Si pickup_date == today y la hora actual ya pasó `default_hour`, devuelve
+        `now + 2h` (sino los sitios rechazan pickup en el pasado). Else usa
+        `default_hour:00:00`.
+        """
+        from datetime import datetime, time, timedelta
+        today = datetime.now()
+        if self.pickup_date == today.date():
+            min_pickup = today + timedelta(hours=2)
+            base = datetime.combine(self.pickup_date, time(default_hour, 0))
+            chosen = max(base, min_pickup)
+            return chosen.replace(microsecond=0).isoformat(timespec="seconds")
+        return f"{self.pickup_date.isoformat()}T{default_hour:02d}:00:00"
+
+    def dropoff_iso(self, default_hour: int = 10) -> str:
+        return f"{self.dropoff_date.isoformat()}T{default_hour:02d}:00:00"
+
 
 @dataclass
 class RateQuote:
