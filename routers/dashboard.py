@@ -12,12 +12,15 @@ router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request):
-    rates = db.latest_rates()
+def dashboard(request: Request, pickup: str | None = None):
+    horizons = db.list_pickup_dates()
+    # Si el query string no especifica pickup, default al primero (más cercano).
+    selected_pickup = pickup or (horizons[0]["pickup_date"] if horizons else None)
+
+    rates = db.latest_rates(pickup_date=selected_pickup) if selected_pickup else []
     runs = db.recent_runs(limit=8)
     agencias = db.list_agencias()
 
-    # Agrupar por agencia para la grilla
     grouped: dict[str, list] = {}
     for r in rates:
         grouped.setdefault(r["agencia_nombre"], []).append(r)
@@ -30,6 +33,8 @@ def dashboard(request: Request):
             "runs": runs,
             "agencias": agencias,
             "total_rates": len(rates),
+            "horizons": horizons,
+            "selected_pickup": selected_pickup,
         },
     )
 

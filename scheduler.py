@@ -23,14 +23,29 @@ log = logging.getLogger(__name__)
 _scheduler: BackgroundScheduler | None = None
 
 
-def _query_from_env() -> RateQuery:
-    pickup = date.today() + timedelta(days=int(os.getenv("PICKUP_DAYS_AHEAD", "7")))
-    rental_days = int(os.getenv("RENTAL_DAYS", "3"))
-    return RateQuery(
-        pickup_location=os.getenv("PICKUP_LOCATION", "BRC"),
-        pickup_date=pickup,
-        dropoff_date=pickup + timedelta(days=rental_days),
-    )
+def _queries_from_env() -> list[RateQuery]:
+    """Construye N queries (uno por horizonte) según HORIZONS_DAYS_AHEAD."""
+    horizons_csv = os.getenv("HORIZONS_DAYS_AHEAD", "0,30,60,90")
+    rental_days  = int(os.getenv("RENTAL_DAYS", "7"))
+    location     = os.getenv("PICKUP_LOCATION", "BRC")
+
+    today = date.today()
+    queries: list[RateQuery] = []
+    for raw in horizons_csv.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        offset = int(raw)
+        # Si pickup=hoy y la hora del scrape ya pasó las 10:00 ART (default
+        # del adapter Hertz), el sitio puede rechazar la fecha. Mantenemos
+        # offset literal — los adapters logean error y siguen.
+        pickup = today + timedelta(days=offset)
+        queries.append(RateQuery(
+            pickup_location=location,
+            pickup_date=pickup,
+            dropoff_date=pickup + timedelta(days=rental_days),
+        ))
+    return queries
 
 
 def _run_adapter(adapter: RateAdapter, agencia_id: int, query: RateQuery) -> int:
@@ -71,19 +86,22 @@ def _run_adapter(adapter: RateAdapter, agencia_id: int, query: RateQuery) -> int
 
 
 def run_all() -> None:
-    """Una corrida completa: todos los adapters activos."""
-    log.info("== Iniciando corrida de scraping ==")
-    query = _query_from_env()
+    """Una corrida completa: para cada horizonte, todos los adapters activos."""
+    queries = _queries_from_env()
+    log.info("== Iniciando corrida de scraping (%d horizontes) ==", len(queries))
     agencias = {a["slug"]: a for a in db.list_agencias(only_active=True)}
 
     total = 0
-    for slug, cls in ADAPTERS.items():
-        agencia = agencias.get(slug)
-        if not agencia:
-            log.warning("Agencia %s no está activa en DB, salteando", slug)
-            continue
-        with cls() as adapter:
-            total += _run_adapter(adapter, int(agencia["id"]), query)
+    for q in queries:
+        log.info("-- Horizonte pickup=%s dropoff=%s (%dd) --",
+                 q.pickup_date, q.dropoff_date, q.rental_days)
+        for slug, cls in ADAPTERS.items():
+            agencia = agencias.get(slug)
+            if not agencia:
+                log.warning("Agencia %s no esta activa en DB, salteando", slug)
+                continue
+            with cls() as adapter:
+                total += _run_adapter(adapter, int(agencia["id"]), q)
     log.info("== Corrida terminada. Total rates: %d ==", total)
 
 

@@ -184,18 +184,27 @@ def finish_run(run_id: int, status: str, rates_count: int = 0, error_msg: str | 
         )
 
 
-def latest_rates() -> list[sqlite3.Row]:
-    """Última tarifa conocida por (agencia, vehículo)."""
+def latest_rates(pickup_date: str | None = None) -> list[sqlite3.Row]:
+    """Última tarifa conocida por (agencia, vehículo, pickup_date).
+
+    Si `pickup_date` viene seteado (YYYY-MM-DD), filtra solo ese horizonte.
+    """
+    params: list = []
+    where = ""
+    if pickup_date:
+        where = "WHERE pickup_date = ?"
+        params.append(pickup_date)
     with get_conn() as c:
         return c.execute(
-            """
+            f"""
             WITH latest AS (
                 SELECT r.*,
                        ROW_NUMBER() OVER (
-                           PARTITION BY agencia_id, vehiculo_id
+                           PARTITION BY agencia_id, vehiculo_id, pickup_date
                            ORDER BY captured_at DESC
                        ) AS rn
                   FROM rates r
+                  {where}
             )
             SELECT  a.slug      AS agencia_slug,
                     a.nombre    AS agencia_nombre,
@@ -217,8 +226,24 @@ def latest_rates() -> list[sqlite3.Row]:
               JOIN agencias  a ON a.id = l.agencia_id
               JOIN vehiculos v ON v.id = l.vehiculo_id
              WHERE l.rn = 1
-             ORDER BY a.nombre, v.categoria
-            """
+             ORDER BY a.nombre, l.precio_total
+            """,
+            params,
+        ).fetchall()
+
+
+def list_pickup_dates() -> list[sqlite3.Row]:
+    """Devuelve los pickup_date distintos con metadata para los tabs del dashboard."""
+    with get_conn() as c:
+        return c.execute(
+            """SELECT pickup_date,
+                      MIN(rental_days)     AS rental_days,
+                      MAX(dropoff_date)    AS dropoff_date,
+                      COUNT(*)             AS rates_count,
+                      MAX(captured_at)     AS last_captured
+                 FROM rates
+                GROUP BY pickup_date
+                ORDER BY pickup_date ASC"""
         ).fetchall()
 
 

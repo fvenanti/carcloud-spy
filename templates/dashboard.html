@@ -46,9 +46,23 @@
     </div>
 </div>
 
+{% if horizons %}
+<ul class="nav nav-pills mb-3">
+    {% for h in horizons %}
+    <li class="nav-item">
+        <a class="nav-link {% if h.pickup_date == selected_pickup %}active{% endif %}"
+           href="/?pickup={{ h.pickup_date }}">
+            <span class="fw-bold">{{ h.pickup_date }}</span>
+            <span class="small opacity-75">· {{ h.rental_days }}d · {{ h.rates_count }} obs.</span>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
 {% if not grouped %}
 <div class="alert alert-info">
-    <i class="bi bi-info-circle"></i> Todavía no hay tarifas capturadas. El primer scrape se dispara al arrancar la app — refrescá en 10-15s.
+    <i class="bi bi-info-circle"></i> Todavía no hay tarifas capturadas para este horizonte. El próximo scrape corre cada 15 min — o disparalo manual con "Refrescar ahora".
 </div>
 {% endif %}
 

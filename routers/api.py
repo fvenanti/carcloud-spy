@@ -15,9 +15,15 @@ def _row_to_dict(r) -> dict:
 
 
 @router.get("/rates")
-def rates():
-    rows = db.latest_rates()
-    return {"count": len(rows), "rates": [_row_to_dict(r) for r in rows]}
+def rates(pickup: str | None = None):
+    rows = db.latest_rates(pickup_date=pickup)
+    return {"count": len(rows), "pickup": pickup, "rates": [_row_to_dict(r) for r in rows]}
+
+
+@router.get("/horizons")
+def horizons():
+    rows = db.list_pickup_dates()
+    return {"horizons": [_row_to_dict(r) for r in rows]}
 
 
 @router.get("/history/{agencia_id}/{vehiculo_id}")
