@@ -26,7 +26,8 @@ BUCKET_META: dict[str, tuple[int, str]] = {
     "pickup_4x4_mt":      (110, "Pickup 4x4 (MT)"),
     "pickup_4x4_at":      (120, "Pickup 4x4 (AT)"),
     "van_8_10pax":        (130, "Van familiar 8-10 pax"),
-    "van_12mas":          (140, "Van 12+ pax"),
+    "van_12pax":          (140, "Van 12 pax"),
+    "van_14pax":          (145, "Van 14 pax"),
     "premium_ultra":      (150, "Premium ultra ($3M+)"),
 }
 
@@ -42,7 +43,8 @@ _MAPPING: dict[str, dict[str, str]] = {
         "F - 4P GDE / BAUL / AIRBAG / ABS":        "sedan_medio_mt",
         "G - 4P GDE / BAUL / AIRBAG / ABS":        "sedan_medio_at",
         "H - FAM 5 PAX / AIRBAG / ABS":            "sedan_medio_mt",
-        "I- - FAM 7 PAX / AIRBAG / ABS":           "familiar_7pax",
+        # I- es manual: no tiene par AT en Hertz/Tara, queda sin bucket
+        "I- - FAM 7 PAX / AIRBAG / ABS":           None,
         "I+ - FAM 7 PAX AT / AIRBAG / ABS":        "familiar_7pax",
         "J - 4X2 MAN / SUV / MEDIANA":             "suv_compacto_mt",
         "K - 4X2 AUTO / SUV / MEDIANA":            "suv_compacto_at",
@@ -51,9 +53,9 @@ _MAPPING: dict[str, dict[str, str]] = {
         "M - 4X4 / AUT / SUV / GDE":               "suv_mediano_4x4",
         "M- - 4X4 / AUT / SUV / GDE":              "suv_mediano_4x4",
         "N - VAN / 8 PAX / FULL":                  "van_8_10pax",
-        "N-":                                       "van_12mas",
-        "N+ - VAN / 12 PAX / FULL":                "van_12mas",
-        "O - VAN / 14 PAX / FULL":                 "van_12mas",
+        "N-":                                       "van_12pax",
+        "N+ - VAN / 12 PAX / FULL":                "van_12pax",
+        "O - VAN / 14 PAX / FULL":                 "van_14pax",
     },
     "hertz": {
         "(C) Económico MT":                  "mini",
