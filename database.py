@@ -103,6 +103,7 @@ def init_db() -> None:
 
         # Seed agencias iniciales (idempotente)
         seed = [
+            ("aba", "ABA Rent a Car Bariloche", "https://aba.benvert.com.ar/"),
             ("hertz", "Hertz Bariloche Aeropuerto", "https://www.hertz.com.ar/"),
             ("localiza", "Localiza Bariloche", "https://www.localiza.com/argentina/"),
             ("sixt", "Sixt Bariloche", "https://www.sixt.com.ar/"),
