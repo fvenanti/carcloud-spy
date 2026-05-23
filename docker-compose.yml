@@ -1,0 +1,21 @@
+services:
+  carcloudspy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: carcloudspy
+    ports:
+      - "127.0.0.1:8004:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./static:/app/static
+      - ./templates:/app/templates
+      - ./routers:/app/routers
+      - ./scrapers:/app/scrapers
+    restart: always
+    logging:
+      driver: journald
+      options:
+        tag: carcloudspy

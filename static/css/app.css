@@ -1,0 +1,19 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.card {
+    border-radius: 0.5rem;
+}
+
+.table-hover tbody tr:hover {
+    background-color: #f8fafc;
+}
+
+.badge {
+    font-weight: 500;
+}
+
+.navbar-brand i {
+    color: #ffc107;
+}
