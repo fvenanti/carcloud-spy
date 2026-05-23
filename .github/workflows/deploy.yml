@@ -1,0 +1,42 @@
+name: Deploy a EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-spy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH a EC2 y deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+          port:     22
+          script_stop: false
+          script: |
+            set -e
+            cd /home/ubuntu/carcloudspy || exit 1
+
+            echo "::group::git pull"
+            git fetch --prune origin
+            git reset --hard origin/main
+            git log --oneline -1
+            echo "::endgroup::"
+
+            echo "::group::docker compose up -d --build"
+            sudo docker compose up -d --build
+            echo "::endgroup::"
+
+            echo "::group::health check"
+            sleep 6
+            sudo docker ps --filter name=carcloudspy --format 'table {{.Names}}\t{{.Status}}'
+            curl -sf -o /dev/null -w 'local check: HTTP %{http_code}\n' http://127.0.0.1:8004/ || exit 1
+            echo "::endgroup::"
