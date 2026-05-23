@@ -2,37 +2,43 @@
 {% block title %}Histórico | CarCloudSPY{% endblock %}
 
 {% block content %}
-<a href="/" class="btn btn-sm btn-outline-secondary mb-3">
-    <i class="bi bi-arrow-left"></i> Volver al dashboard
+<a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary mb-3">
+    <i class="bi bi-arrow-left"></i> Volver
 </a>
 
 <div class="card shadow-sm mb-3">
     <div class="card-header bg-white">
-        <h5 class="mb-0"><i class="bi bi-graph-up"></i> Evolución de tarifa</h5>
+        <h5 class="mb-0"><i class="bi bi-graph-up"></i> Evolución de tarifa por horizonte</h5>
+        <div class="small text-muted">
+            Cada línea es un horizonte distinto (Hoy / +1m / +2m / +3m). Click en la leyenda para ocultar/mostrar series.
+        </div>
     </div>
     <div class="card-body">
-        <canvas id="chart-history" height="80"></canvas>
+        <canvas id="chart-history" height="90"></canvas>
     </div>
 </div>
 
 <div class="card shadow-sm">
-    <div class="card-header bg-white">
-        <h6 class="mb-0">Detalle de capturas ({{ history|length }})</h6>
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0">Detalle de capturas</h6>
+        <span class="badge bg-secondary">{{ history|length }} observaciones</span>
     </div>
     <div class="table-responsive">
         <table class="table table-sm mb-0">
             <thead class="table-light">
                 <tr>
                     <th>Fecha captura</th>
+                    <th>Horizonte (pickup)</th>
                     <th class="text-end">Precio/día</th>
                     <th class="text-end">Precio total</th>
                     <th>Moneda</th>
                 </tr>
             </thead>
             <tbody>
-                {% for h in history %}
+                {% for h in history|reverse %}
                 <tr>
                     <td>{{ h.captured_at|dt }}</td>
+                    <td><span class="badge bg-light text-dark">{{ h.pickup_date }}</span></td>
                     <td class="text-end">{{ h.precio_por_dia|money(h.moneda) }}</td>
                     <td class="text-end fw-bold">{{ h.precio_total|money(h.moneda) }}</td>
                     <td>{{ h.moneda }}</td>
@@ -45,32 +51,75 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 (async () => {
-    const r = await fetch(`/api/history/{{ agencia_id }}/{{ vehiculo_id }}?limit=500`);
+    const r = await fetch(`/api/history/{{ agencia_id }}/{{ vehiculo_id }}?limit=1000`);
     const data = await r.json();
-    const points = data.history.slice().reverse();   // cronológico
-    const labels = points.map(p => new Date(p.captured_at).toLocaleString('es-AR'));
-    const values = points.map(p => p.precio_total);
+    const points = data.history;
+    if (!points.length) return;
+
+    // Agrupar por pickup_date
+    const byPickup = {};
+    for (const p of points) {
+        if (!byPickup[p.pickup_date]) byPickup[p.pickup_date] = [];
+        byPickup[p.pickup_date].push({ x: p.captured_at, y: p.precio_total });
+    }
+    const pickups = Object.keys(byPickup).sort();
+
+    // Color y label por horizonte
+    const colors = ['#0d6efd', '#198754', '#fd7e14', '#dc3545', '#6610f2', '#20c997'];
+    const today = new Date();
+    const labelFor = (pdStr) => {
+        const pd = new Date(pdStr);
+        const days = Math.round((pd - today) / 86400000);
+        if (days <= 1) return `Hoy (${pdStr})`;
+        if (days >= 25 && days <= 35) return `+1m (${pdStr})`;
+        if (days >= 55 && days <= 65) return `+2m (${pdStr})`;
+        if (days >= 85 && days <= 95) return `+3m (${pdStr})`;
+        return `+${days}d (${pdStr})`;
+    };
+
+    const datasets = pickups.map((pd, idx) => ({
+        label: labelFor(pd),
+        data: byPickup[pd],
+        borderColor: colors[idx % colors.length],
+        backgroundColor: colors[idx % colors.length] + '20',
+        fill: false,
+        tension: 0.15,
+        pointRadius: 2,
+        spanGaps: true,
+    }));
+
     new Chart(document.getElementById('chart-history'), {
         type: 'line',
-        data: {
-            labels,
-            datasets: [{
-                label: 'Precio total',
-                data: values,
-                borderColor: '#0d6efd',
-                backgroundColor: 'rgba(13,110,253,0.1)',
-                fill: true,
-                tension: 0.25,
-                pointRadius: 2,
-            }],
-        },
+        data: { datasets },
         options: {
             responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: false } },
-        },
+            interaction: { mode: 'nearest', intersect: false },
+            plugins: {
+                legend: { position: 'top' },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: $${ctx.parsed.y.toLocaleString('es-AR')}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: { tooltipFormat: 'dd/MM/yy HH:mm', displayFormats: { hour: 'dd/MM HH:mm' } },
+                    title: { display: true, text: 'Fecha de captura' }
+                },
+                y: {
+                    beginAtZero: false,
+                    ticks: {
+                        callback: (v) => '$' + (v/1000).toFixed(0) + 'k'
+                    },
+                    title: { display: true, text: 'Precio total (ARS)' }
+                }
+            }
+        }
     });
 })();
 </script>

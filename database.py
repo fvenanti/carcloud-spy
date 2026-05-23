@@ -431,13 +431,15 @@ def latest_rates_all_horizons(max_age_hours: int = 6) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def rate_history(agencia_id: int, vehiculo_id: int, limit: int = 200) -> list[sqlite3.Row]:
+def rate_history(agencia_id: int, vehiculo_id: int, limit: int = 1000) -> list[sqlite3.Row]:
+    """Histórico completo, ordenado cronológicamente, incluyendo pickup_date
+    para que el cliente pueda separar las series por horizonte."""
     with get_conn() as c:
         return c.execute(
-            """SELECT precio_total, precio_por_dia, moneda, captured_at
+            """SELECT pickup_date, precio_total, precio_por_dia, moneda, captured_at
                  FROM rates
                 WHERE agencia_id=? AND vehiculo_id=?
-                ORDER BY captured_at DESC
+                ORDER BY captured_at ASC
                 LIMIT ?""",
             (agencia_id, vehiculo_id, limit),
         ).fetchall()
