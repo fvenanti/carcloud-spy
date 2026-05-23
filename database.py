@@ -274,6 +274,50 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def latest_rates_all_horizons(max_age_hours: int = 6) -> list[sqlite3.Row]:
+    """Última tarifa por (agencia, vehiculo, pickup_date) para horizontes activos.
+
+    Pensada para pivot: cada fila es 1 punto del cruce. El router agrupa por
+    (agencia, vehiculo) y arma columnas por pickup_date.
+    """
+    with get_conn() as c:
+        return c.execute(
+            """
+            WITH latest AS (
+                SELECT r.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY agencia_id, vehiculo_id, pickup_date
+                           ORDER BY captured_at DESC
+                       ) AS rn
+                  FROM rates r
+                 WHERE captured_at > datetime('now', ?)
+            )
+            SELECT  a.slug      AS agencia_slug,
+                    a.nombre    AS agencia_nombre,
+                    v.categoria AS categoria,
+                    v.modelo    AS modelo,
+                    v.transmision,
+                    v.pasajeros,
+                    l.pickup_date,
+                    l.dropoff_date,
+                    l.rental_days,
+                    l.moneda,
+                    l.precio_total,
+                    l.precio_por_dia,
+                    l.disponible,
+                    l.captured_at,
+                    l.agencia_id,
+                    l.vehiculo_id
+              FROM latest l
+              JOIN agencias  a ON a.id = l.agencia_id
+              JOIN vehiculos v ON v.id = l.vehiculo_id
+             WHERE l.rn = 1
+             ORDER BY a.nombre, v.categoria, l.precio_total, l.pickup_date
+            """,
+            (f"-{max_age_hours} hours",),
+        ).fetchall()
+
+
 def rate_history(agencia_id: int, vehiculo_id: int, limit: int = 200) -> list[sqlite3.Row]:
     with get_conn() as c:
         return c.execute(

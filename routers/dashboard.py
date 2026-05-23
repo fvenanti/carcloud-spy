@@ -39,6 +39,42 @@ def dashboard(request: Request, pickup: str | None = None):
     )
 
 
+@router.get("/comparativo", response_class=HTMLResponse)
+def comparativo(request: Request):
+    """Tabla pivot: filas=(agencia, vehiculo), columnas=horizonte. Delta vs hoy."""
+    horizons = db.list_pickup_dates()
+    pickup_dates = [h["pickup_date"] for h in horizons]
+    rows = db.latest_rates_all_horizons()
+
+    # Pivot: {agencia_nombre: {(categoria, modelo, transmision, pasajeros, agencia_id, vehiculo_id): {pickup_date: row}}}
+    pivot: dict[str, dict[tuple, dict[str, dict]]] = {}
+    for r in rows:
+        key = (r["categoria"], r["modelo"] or "", r["transmision"] or "",
+               r["pasajeros"] or 0, r["agencia_id"], r["vehiculo_id"])
+        pivot.setdefault(r["agencia_nombre"], {}).setdefault(key, {})[r["pickup_date"]] = dict(r)
+
+    # Ordenar filas dentro de cada agencia: por precio del primer horizonte
+    sorted_pivot: dict[str, list[tuple]] = {}
+    base_pd = pickup_dates[0] if pickup_dates else None
+    for agencia, vehiculos in pivot.items():
+        items = list(vehiculos.items())
+        items.sort(key=lambda kv: (
+            kv[1].get(base_pd, {}).get("precio_total") or 9e15,
+            kv[0][0],  # categoria
+        ))
+        sorted_pivot[agencia] = items
+
+    return templates.TemplateResponse(
+        "comparativo.html",
+        {
+            "request": request,
+            "horizons": horizons,
+            "pickup_dates": pickup_dates,
+            "pivot": sorted_pivot,
+        },
+    )
+
+
 @router.get("/historial/{agencia_id}/{vehiculo_id}", response_class=HTMLResponse)
 def historial(request: Request, agencia_id: int, vehiculo_id: int):
     history = db.rate_history(agencia_id, vehiculo_id, limit=500)

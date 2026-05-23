@@ -18,8 +18,9 @@
         });
     }
 
-    // Solo auto-reload en el dashboard principal (no en historial).
-    if (window.location.pathname === '/') {
+    // Auto-reload en dashboard y comparativo (no en historial).
+    const path = window.location.pathname;
+    if (path === '/' || path === '/comparativo') {
         setTimeout(() => window.location.reload(), REFRESH_MS);
     }
 })();

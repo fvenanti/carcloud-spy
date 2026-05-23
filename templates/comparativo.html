@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Comparativo | CarCloudSPY{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">
+        <i class="bi bi-bar-chart-line"></i> Comparativo multi-horizonte
+        <span class="badge bg-secondary fs-6 ms-2">{{ horizons|length }} horizontes</span>
+    </h4>
+    <a href="/" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-list-ul"></i> Volver a vista por horizonte
+    </a>
+</div>
+
+{% if not pivot %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Todavía no hay tarifas capturadas en las últimas 6 horas.
+</div>
+{% endif %}
+
+<div class="alert alert-secondary small mb-4">
+    <i class="bi bi-info-circle"></i>
+    <strong>Cómo leer esta tabla:</strong> cada fila es un vehículo de una agencia.
+    Las 4 columnas finales son la <strong>tarifa total para 7 días</strong> con pickup en cada uno de los horizontes.
+    El delta % es vs. el primer horizonte (hoy). Verde = más barato a futuro, rojo = más caro a futuro.
+</div>
+
+{% for agencia, vehiculos in pivot.items() %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-building"></i> {{ agencia }}</h5>
+        <span class="badge bg-secondary">{{ vehiculos|length }} vehículos</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Categoría</th>
+                    <th>Modelo</th>
+                    <th class="text-center">Trans.</th>
+                    <th class="text-center">Pax.</th>
+                    {% for pd in pickup_dates %}
+                    <th class="text-end">
+                        <div class="small text-muted">{{ pd }}</div>
+                        <div>+{{ loop.index0 * 30 if loop.index0 > 0 else 0 }}d</div>
+                    </th>
+                    {% endfor %}
+                    <th class="text-center" style="width: 50px;">Hist.</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key, prices in vehiculos %}
+                {% set categoria, modelo, transmision, pasajeros, agencia_id, vehiculo_id = key %}
+                {% set base_price = prices.get(pickup_dates[0], {}).get('precio_total') %}
+                <tr>
+                    <td><span class="badge bg-light text-dark">{{ categoria }}</span></td>
+                    <td class="fw-semibold">{{ modelo or "-" }}</td>
+                    <td class="text-center small text-muted">{{ transmision or "-" }}</td>
+                    <td class="text-center small text-muted">{{ pasajeros or "-" }}</td>
+                    {% for pd in pickup_dates %}
+                    {% set cell = prices.get(pd) %}
+                    <td class="text-end">
+                        {% if cell %}
+                            <div class="fw-bold">{{ cell.precio_total|money(cell.moneda) }}</div>
+                            {% if loop.index0 > 0 and base_price and base_price > 0 %}
+                                {% set delta_pct = ((cell.precio_total - base_price) / base_price) * 100 %}
+                                {% if delta_pct|abs > 0.5 %}
+                                    {% if delta_pct < 0 %}
+                                        <span class="badge bg-success-subtle text-success small">
+                                            <i class="bi bi-arrow-down"></i> {{ "%.1f"|format(delta_pct|abs) }}%
+                                        </span>
+                                    {% else %}
+                                        <span class="badge bg-danger-subtle text-danger small">
+                                            <i class="bi bi-arrow-up"></i> {{ "%.1f"|format(delta_pct) }}%
+                                        </span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-light text-muted small">=</span>
+                                {% endif %}
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-center">
+                        <a href="/historial/{{ agencia_id }}/{{ vehiculo_id }}"
+                           class="btn btn-sm btn-outline-primary" title="Histórico de precios">
+                            <i class="bi bi-graph-up"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
