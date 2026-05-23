@@ -180,6 +180,38 @@ def get_or_create_vehiculo(
         return int(cur.lastrowid)
 
 
+def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
+    """Para la vista matriz: por (bucket, agencia, pickup_date) el precio
+    mínimo (la categoría nativa más barata de ese bucket para esa agencia)."""
+    with get_conn() as c:
+        return c.execute(
+            """
+            WITH latest AS (
+                SELECT r.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY agencia_id, vehiculo_id, pickup_date
+                           ORDER BY captured_at DESC
+                       ) AS rn
+                  FROM rates r
+                 WHERE captured_at > datetime('now', ?)
+            )
+            SELECT v.bucket          AS bucket,
+                   a.slug            AS agencia_slug,
+                   a.nombre          AS agencia_nombre,
+                   l.pickup_date     AS pickup_date,
+                   MIN(l.precio_total) AS precio,
+                   MIN(l.moneda)     AS moneda
+              FROM latest l
+              JOIN agencias  a ON a.id = l.agencia_id
+              JOIN vehiculos v ON v.id = l.vehiculo_id
+             WHERE l.rn = 1 AND v.bucket IS NOT NULL
+             GROUP BY v.bucket, a.slug, l.pickup_date
+             ORDER BY v.bucket, a.slug, l.pickup_date
+            """,
+            (f"-{max_age_hours} hours",),
+        ).fetchall()
+
+
 def latest_rates_by_bucket(pickup_date: str | None = None) -> list[sqlite3.Row]:
     """Última tarifa por (agencia, vehiculo, pickup_date) con bucket info.
 

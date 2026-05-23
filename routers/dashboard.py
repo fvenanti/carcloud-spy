@@ -75,6 +75,70 @@ def comparativo(request: Request):
     )
 
 
+@router.get("/matriz", response_class=HTMLResponse)
+def matriz_view(request: Request):
+    """Matriz pivot completa: filas=buckets, cols=agencia×horizonte."""
+    from scrapers.buckets import bucket_label, bucket_order
+    from datetime import date as _date
+
+    rows = db.matrix_data()
+    horizons = db.list_pickup_dates()
+    agencias = db.list_agencias()
+
+    # pickup_dates únicos en orden cronológico
+    pickup_dates = [h["pickup_date"] for h in horizons]
+    today = _date.today().isoformat()
+
+    def horizon_label(pd: str) -> str:
+        try:
+            from datetime import datetime as dt_
+            d = dt_.fromisoformat(pd).date()
+            delta_days = (d - _date.today()).days
+            if delta_days <= 1:
+                return "Hoy"
+            if 25 <= delta_days <= 35:
+                return "+1m"
+            if 55 <= delta_days <= 65:
+                return "+2m"
+            if 85 <= delta_days <= 95:
+                return "+3m"
+            return f"+{delta_days}d"
+        except Exception:
+            return pd
+
+    pickup_labels = [(pd, horizon_label(pd)) for pd in pickup_dates]
+    agencia_list = [(a["slug"], a["nombre"]) for a in agencias]
+
+    # Pivot: {bucket: {agencia_slug: {pickup_date: precio}}}
+    matrix: dict[str, dict[str, dict[str, dict]]] = {}
+    for r in rows:
+        b = r["bucket"]
+        matrix.setdefault(b, {}).setdefault(r["agencia_slug"], {})[r["pickup_date"]] = {
+            "precio": r["precio"],
+            "moneda": r["moneda"],
+        }
+
+    # Ordenar buckets
+    bucket_rows = []
+    for b in sorted(matrix.keys(), key=bucket_order):
+        bucket_rows.append({
+            "slug": b,
+            "label": bucket_label(b),
+            "data": matrix[b],
+        })
+
+    return templates.TemplateResponse(
+        "matriz.html",
+        {
+            "request": request,
+            "agencias": agencia_list,
+            "pickup_labels": pickup_labels,
+            "buckets": bucket_rows,
+            "moneda_default": "ARS",
+        },
+    )
+
+
 @router.get("/buckets", response_class=HTMLResponse)
 def buckets_view(request: Request, pickup: str | None = None):
     """Comparativo por bucket canónico cross-agencia para un horizonte.

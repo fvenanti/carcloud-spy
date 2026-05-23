@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block title %}Matriz | CarCloudSPY{% endblock %}
+
+{% block content %}
+<style>
+.matriz-controls { background: white; padding: .85rem 1rem; border-radius: .5rem; box-shadow: 0 .125rem .25rem rgba(0,0,0,.075); }
+.matriz-controls label { font-size: .85rem; }
+.agency-pill { cursor: pointer; user-select: none; }
+.agency-pill input { display: none; }
+.agency-pill .badge { font-size: .9rem; padding: .35rem .7rem; }
+.agency-pill input:not(:checked) + .badge { background-color: #e9ecef !important; color: #6c757d !important; text-decoration: line-through; opacity: .55; }
+table.matriz { font-size: .85rem; border-collapse: separate; border-spacing: 0; }
+table.matriz thead th { background: #f8fafc; position: sticky; top: 0; z-index: 2; }
+table.matriz thead tr.lvl1 th { border-bottom: 2px solid #e5e7eb; }
+table.matriz thead tr.lvl2 th { font-weight: 500; color: #6b7280; font-size: .78rem; padding-top: .25rem; padding-bottom: .25rem; }
+table.matriz td.cat-label { font-weight: 600; background: #fafbfc; position: sticky; left: 0; z-index: 1; min-width: 220px; }
+table.matriz td.price { text-align: right; padding: .4rem .7rem; font-variant-numeric: tabular-nums; }
+table.matriz td.empty { color: #c0c5ce; text-align: right; }
+table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
+.cell-highlight { background: #d1fae5 !important; color: #065f46; font-weight: 600; }
+.cell-highlight-2 { background: #ecfdf5 !important; color: #065f46; }
+.col-divider { border-left: 2px solid #e5e7eb; }
+.no-data { padding: 2rem; text-align: center; color: #6b7280; }
+</style>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0"><i class="bi bi-table"></i> Matriz de tarifas</h4>
+</div>
+
+<div class="matriz-controls mb-3 d-flex flex-wrap align-items-center gap-3">
+    <div class="d-flex align-items-center gap-2">
+        <label class="text-muted mb-0">Agencias:</label>
+        {% for slug, nombre in agencias %}
+        <label class="agency-pill" data-slug="{{ slug }}">
+            <input type="checkbox" class="agency-toggle" data-slug="{{ slug }}" checked>
+            <span class="badge bg-primary">{{ nombre.split(' ')[0] }}</span>
+        </label>
+        {% endfor %}
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <label class="text-muted mb-0">Resaltar:</label>
+        <select id="highlight-mode" class="form-select form-select-sm" style="width:auto;">
+            <option value="min-row" selected>más barata por fila</option>
+            <option value="min-row-by-agency">más barata por fila (resalta una por agencia)</option>
+            <option value="min-row-period">más barata por horizonte</option>
+            <option value="max-row">más cara por fila</option>
+            <option value="none">sin resaltado</option>
+        </select>
+    </div>
+    <div class="flex-grow-1 d-flex align-items-center gap-2">
+        <label class="text-muted mb-0">Filtrar:</label>
+        <input type="text" id="filter-cat" class="form-control form-control-sm"
+               placeholder="filtrar categoría..." style="max-width:260px;">
+    </div>
+</div>
+
+{% if not buckets %}
+<div class="no-data">
+    <i class="bi bi-info-circle fs-4"></i>
+    <p class="mt-2 mb-0">Todavía no hay datos para mostrar.</p>
+</div>
+{% else %}
+<div class="card shadow-sm">
+    <div class="table-responsive">
+        <table class="table table-sm matriz mb-0" id="matriz-table">
+            <thead>
+                <tr class="lvl1">
+                    <th rowspan="2" class="cat-label">Categoría</th>
+                    {% for slug, nombre in agencias %}
+                    <th colspan="{{ pickup_labels|length }}"
+                        class="text-center text-primary{% if not loop.first %} col-divider{% endif %}"
+                        data-slug="{{ slug }}">
+                        {{ nombre }}
+                    </th>
+                    {% endfor %}
+                </tr>
+                <tr class="lvl2">
+                    {% for slug, _ in agencias %}
+                        {% set outer = loop %}
+                        {% for pd, label in pickup_labels %}
+                        <th class="text-center{% if loop.first and not outer.first %} col-divider{% endif %}"
+                            data-slug="{{ slug }}" data-pickup="{{ pd }}">
+                            {{ label }}
+                        </th>
+                        {% endfor %}
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in buckets %}
+                <tr data-cat="{{ row.label|lower }}">
+                    <td class="cat-label">{{ row.label }}</td>
+                    {% for slug, _ in agencias %}
+                        {% set outer = loop %}
+                        {% for pd, _ in pickup_labels %}
+                        {% set cell = row.data.get(slug, {}).get(pd) %}
+                        <td class="price{% if loop.first and not outer.first %} col-divider{% endif %}{% if not cell %} empty{% endif %}"
+                            data-slug="{{ slug }}" data-pickup="{{ pd }}"
+                            {% if cell %}data-price="{{ cell.precio|int }}"{% endif %}>
+                            {% if cell %}
+                                {{ (cell.precio / 1000)|round|int }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        Precios en <strong>miles de {{ moneda_default }}</strong> (ej. 374 = $374.000). Tarifa total por 7 días.
+        Hovereá sobre una celda para ver el monto exacto.
+    </div>
+</div>
+{% endif %}
+
+<script>
+(function () {
+    const table = document.getElementById('matriz-table');
+    if (!table) return;
+
+    // 1) Toggle agencias: mostrar/ocultar columnas
+    const toggleAgency = (slug, visible) => {
+        table.querySelectorAll(`[data-slug="${slug}"]`).forEach(el => {
+            el.style.display = visible ? '' : 'none';
+        });
+    };
+    document.querySelectorAll('.agency-toggle').forEach(input => {
+        input.addEventListener('change', () => {
+            toggleAgency(input.dataset.slug, input.checked);
+            applyHighlight();
+        });
+    });
+
+    // 2) Filtrar categorías
+    const filterInput = document.getElementById('filter-cat');
+    filterInput.addEventListener('input', () => {
+        const q = filterInput.value.trim().toLowerCase();
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.style.display = (!q || tr.dataset.cat.includes(q)) ? '' : 'none';
+        });
+        applyHighlight();
+    });
+
+    // 3) Resaltar (cómputo en cliente sobre celdas visibles)
+    const select = document.getElementById('highlight-mode');
+    const applyHighlight = () => {
+        const mode = select.value;
+        // Limpiar
+        table.querySelectorAll('td.price').forEach(td => {
+            td.classList.remove('cell-highlight', 'cell-highlight-2');
+        });
+        if (mode === 'none') return;
+
+        const visibleSlugs = [...document.querySelectorAll('.agency-toggle:checked')].map(i => i.dataset.slug);
+        if (visibleSlugs.length === 0) return;
+
+        const pickupDates = [...new Set([...table.querySelectorAll('thead .lvl2 th')]
+            .filter(th => visibleSlugs.includes(th.dataset.slug))
+            .map(th => th.dataset.pickup))];
+
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            if (tr.style.display === 'none') return;
+
+            const cells = [...tr.querySelectorAll('td.price')].filter(td =>
+                visibleSlugs.includes(td.dataset.slug) && td.dataset.price
+            );
+            if (!cells.length) return;
+
+            if (mode === 'min-row' || mode === 'max-row') {
+                const pick = mode === 'min-row' ? Math.min : Math.max;
+                const best = pick(...cells.map(c => +c.dataset.price));
+                cells.filter(c => +c.dataset.price === best)
+                     .forEach(c => c.classList.add('cell-highlight'));
+            } else if (mode === 'min-row-by-agency') {
+                visibleSlugs.forEach(slug => {
+                    const agencyCells = cells.filter(c => c.dataset.slug === slug);
+                    if (!agencyCells.length) return;
+                    const min = Math.min(...agencyCells.map(c => +c.dataset.price));
+                    agencyCells.filter(c => +c.dataset.price === min)
+                               .forEach(c => c.classList.add('cell-highlight-2'));
+                });
+                // Y el global de la fila en verde fuerte
+                const globalMin = Math.min(...cells.map(c => +c.dataset.price));
+                cells.filter(c => +c.dataset.price === globalMin)
+                     .forEach(c => {
+                         c.classList.remove('cell-highlight-2');
+                         c.classList.add('cell-highlight');
+                     });
+            } else if (mode === 'min-row-period') {
+                pickupDates.forEach(pd => {
+                    const periodCells = cells.filter(c => c.dataset.pickup === pd);
+                    if (!periodCells.length) return;
+                    const min = Math.min(...periodCells.map(c => +c.dataset.price));
+                    periodCells.filter(c => +c.dataset.price === min)
+                               .forEach(c => c.classList.add('cell-highlight'));
+                });
+            }
+        });
+    };
+    select.addEventListener('change', applyHighlight);
+
+    // 4) Tooltip nativo con precio completo
+    table.querySelectorAll('td.price[data-price]').forEach(td => {
+        const p = parseInt(td.dataset.price, 10);
+        td.title = '$ ' + p.toLocaleString('es-AR');
+    });
+
+    // Apply on load
+    applyHighlight();
+})();
+</script>
+{% endblock %}
