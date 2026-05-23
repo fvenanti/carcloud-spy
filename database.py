@@ -107,7 +107,7 @@ def init_db() -> None:
             ("hertz", "Hertz Bariloche Aeropuerto", "https://www.hertz.com.ar/"),
             ("localiza", "Localiza Bariloche", "https://www.localiza.com/argentina/"),
             ("sixt", "Sixt Bariloche", "https://www.sixt.com.ar/"),
-            ("taraborelli", "Taraborelli Bariloche", "https://www.taraborelli.com.ar/"),
+            ("taraborelli", "Taraborelli Bariloche Aeropuerto", "https://www.taraborellirentacar.com/"),
         ]
         c.executemany(
             "INSERT OR IGNORE INTO agencias (slug, nombre, url_base) VALUES (?, ?, ?)",
