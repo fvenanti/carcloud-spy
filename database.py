@@ -65,7 +65,7 @@ def init_db() -> None:
                 pasajeros       INTEGER,
                 external_code   TEXT,
                 created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(agencia_id, categoria, modelo)
+                UNIQUE(agencia_id, categoria)
             );
 
             CREATE TABLE IF NOT EXISTS rates (
@@ -132,13 +132,30 @@ def get_or_create_vehiculo(
     pasajeros: int | None = None,
     external_code: str | None = None,
 ) -> int:
+    """Upsert por (agencia_id, categoria). Si el vehiculo ya existe y el modelo
+    cambia (rotacion de stock en la categoria), actualiza modelo/transmision/etc."""
     with get_conn() as c:
         row = c.execute(
-            "SELECT id FROM vehiculos WHERE agencia_id=? AND categoria=? AND IFNULL(modelo,'')=IFNULL(?, '')",
-            (agencia_id, categoria, modelo),
+            "SELECT id, modelo, transmision, pasajeros, external_code FROM vehiculos WHERE agencia_id=? AND categoria=?",
+            (agencia_id, categoria),
         ).fetchone()
         if row:
-            return int(row["id"])
+            vid = int(row["id"])
+            # Si cambio el modelo (u otro atributo), actualizar para reflejar el stock vigente.
+            needs_update = (
+                (modelo or None) != (row["modelo"] or None)
+                or (transmision or None) != (row["transmision"] or None)
+                or (pasajeros or None) != (row["pasajeros"] or None)
+                or (external_code or None) != (row["external_code"] or None)
+            )
+            if needs_update:
+                c.execute(
+                    """UPDATE vehiculos
+                          SET modelo=?, transmision=?, pasajeros=?, external_code=?
+                        WHERE id=?""",
+                    (modelo, transmision, pasajeros, external_code, vid),
+                )
+            return vid
         cur = c.execute(
             """INSERT INTO vehiculos
                  (agencia_id, categoria, modelo, transmision, pasajeros, external_code)
