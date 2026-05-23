@@ -2,7 +2,7 @@
 
 Monitor en tiempo real de tarifas de rent-a-car en **San Carlos de Bariloche**.
 
-Cada 15 minutos consulta las webs de **Hertz**, **Localiza**, **Sixt** y **Taraborelli**, persiste la tarifa en SQLite y muestra un dashboard en vivo con historial por vehículo.
+Cada hora consulta las APIs de **ABA**, **Hertz** y **Taraborelli** (Bariloche Aeropuerto), persiste la tarifa en SQLite y muestra un dashboard con histórico, comparativos y matriz cross-agencia.
 
 ## Stack
 
@@ -11,7 +11,7 @@ Mismo stack que [CarCloud](../Carcloud-ec2):
 - **FastAPI** + **Jinja2 SSR** + **Bootstrap 5** (+ Chart.js para los sparklines)
 - **uvicorn** + **Python 3.11-slim** + **Docker compose**
 - **SQLite** (cero-config, app aislada)
-- **APScheduler** (cron interno cada 15 min)
+- **APScheduler** (cron interno cada 1 hora)
 - **httpx** + **BeautifulSoup** para los adapters
 
 ## Estructura
@@ -24,7 +24,7 @@ CarCloudSPY/
 ├── .env.example
 ├── main.py                  # FastAPI entry point
 ├── database.py              # SQLite (agencias, vehiculos, rates, scrape_runs)
-├── scheduler.py             # APScheduler — corrida cada 15 min
+├── scheduler.py             # APScheduler — corrida cada 1h
 ├── shared_templates.py      # Jinja2 + filtros money/dt
 ├── scrapers/
 │   ├── base.py              # interfaz RateAdapter / RateQuote / RateQuery
@@ -145,7 +145,7 @@ curl -X POST http://127.0.0.1:8004/api/refresh
 
 | Var | Default | Descripción |
 |---|---|---|
-| `SCRAPE_INTERVAL_MIN` | 15 | Frecuencia del scheduler |
+| `SCRAPE_INTERVAL_MIN` | 60 | Frecuencia del scheduler en minutos |
 | `PICKUP_LOCATION` | BRC | Código IATA de la sucursal |
 | `PICKUP_DAYS_AHEAD` | 7 | Días desde hoy hasta el pickup |
 | `RENTAL_DAYS` | 3 | Duración del alquiler a cotizar |
