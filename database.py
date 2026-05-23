@@ -42,8 +42,15 @@ def get_conn() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _ensure_bucket_column(c: sqlite3.Connection) -> None:
+    """Agrega la columna `bucket` si no existe (migracion idempotente)."""
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(vehiculos)").fetchall()}
+    if "bucket" not in cols:
+        c.execute("ALTER TABLE vehiculos ADD COLUMN bucket TEXT")
+
+
 def init_db() -> None:
-    """Crea el esquema y siembra las 4 agencias iniciales."""
+    """Crea el esquema y siembra las agencias iniciales."""
     with get_conn() as c:
         c.executescript(
             """
@@ -64,9 +71,12 @@ def init_db() -> None:
                 transmision     TEXT,
                 pasajeros       INTEGER,
                 external_code   TEXT,
+                bucket          TEXT,
                 created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(agencia_id, categoria)
             );
+            -- Migracion idempotente: si la columna no existe la agrega
+            -- (PRAGMA en SQLite no soporta IF NOT EXISTS en ADD COLUMN antes de 3.35)
 
             CREATE TABLE IF NOT EXISTS rates (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,6 +111,8 @@ def init_db() -> None:
             """
         )
 
+        _ensure_bucket_column(c)
+
         # Seed agencias iniciales (idempotente)
         seed = [
             ("aba", "ABA Rent a Car Bariloche", "https://aba.benvert.com.ar/"),
@@ -130,37 +142,90 @@ def get_or_create_vehiculo(
     pasajeros: int | None = None,
     external_code: str | None = None,
 ) -> int:
-    """Upsert por (agencia_id, categoria). Si el vehiculo ya existe y el modelo
-    cambia (rotacion de stock en la categoria), actualiza modelo/transmision/etc."""
+    """Upsert por (agencia_id, categoria). Actualiza modelo si rota.
+    El bucket se resuelve via scrapers.buckets.get_bucket usando el slug de la agencia."""
+    from scrapers.buckets import get_bucket
     with get_conn() as c:
+        slug = c.execute("SELECT slug FROM agencias WHERE id=?", (agencia_id,)).fetchone()
+        slug_str = slug["slug"] if slug else ""
+        bucket = get_bucket(slug_str, categoria)
+
         row = c.execute(
-            "SELECT id, modelo, transmision, pasajeros, external_code FROM vehiculos WHERE agencia_id=? AND categoria=?",
+            "SELECT id, modelo, transmision, pasajeros, external_code, bucket FROM vehiculos WHERE agencia_id=? AND categoria=?",
             (agencia_id, categoria),
         ).fetchone()
         if row:
             vid = int(row["id"])
-            # Si cambio el modelo (u otro atributo), actualizar para reflejar el stock vigente.
             needs_update = (
                 (modelo or None) != (row["modelo"] or None)
                 or (transmision or None) != (row["transmision"] or None)
                 or (pasajeros or None) != (row["pasajeros"] or None)
                 or (external_code or None) != (row["external_code"] or None)
+                or (bucket or None) != (row["bucket"] or None)
             )
             if needs_update:
                 c.execute(
                     """UPDATE vehiculos
-                          SET modelo=?, transmision=?, pasajeros=?, external_code=?
+                          SET modelo=?, transmision=?, pasajeros=?, external_code=?, bucket=?
                         WHERE id=?""",
-                    (modelo, transmision, pasajeros, external_code, vid),
+                    (modelo, transmision, pasajeros, external_code, bucket, vid),
                 )
             return vid
         cur = c.execute(
             """INSERT INTO vehiculos
-                 (agencia_id, categoria, modelo, transmision, pasajeros, external_code)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (agencia_id, categoria, modelo, transmision, pasajeros, external_code),
+                 (agencia_id, categoria, modelo, transmision, pasajeros, external_code, bucket)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (agencia_id, categoria, modelo, transmision, pasajeros, external_code, bucket),
         )
         return int(cur.lastrowid)
+
+
+def latest_rates_by_bucket(pickup_date: str | None = None) -> list[sqlite3.Row]:
+    """Última tarifa por (agencia, vehiculo, pickup_date) con bucket info.
+
+    Para la vista comparativa cross-agencia agrupada por bucket canónico.
+    """
+    params: list = []
+    where = ""
+    if pickup_date:
+        where = "WHERE pickup_date = ?"
+        params.append(pickup_date)
+    with get_conn() as c:
+        return c.execute(
+            f"""
+            WITH latest AS (
+                SELECT r.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY agencia_id, vehiculo_id, pickup_date
+                           ORDER BY captured_at DESC
+                       ) AS rn
+                  FROM rates r
+                  {where}
+            )
+            SELECT  a.slug      AS agencia_slug,
+                    a.nombre    AS agencia_nombre,
+                    v.categoria,
+                    v.modelo,
+                    v.transmision,
+                    v.pasajeros,
+                    v.bucket,
+                    l.pickup_date,
+                    l.dropoff_date,
+                    l.rental_days,
+                    l.moneda,
+                    l.precio_total,
+                    l.precio_por_dia,
+                    l.captured_at,
+                    l.agencia_id,
+                    l.vehiculo_id
+              FROM latest l
+              JOIN agencias  a ON a.id = l.agencia_id
+              JOIN vehiculos v ON v.id = l.vehiculo_id
+             WHERE l.rn = 1
+             ORDER BY a.nombre, l.precio_total
+            """,
+            params,
+        ).fetchall()
 
 
 def insert_rates(rows: Iterable[dict]) -> int:

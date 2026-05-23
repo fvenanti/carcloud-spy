@@ -20,7 +20,7 @@
 
     // Auto-reload en dashboard y comparativo (no en historial).
     const path = window.location.pathname;
-    if (path === '/' || path === '/comparativo') {
+    if (path === '/' || path === '/comparativo' || path === '/buckets') {
         setTimeout(() => window.location.reload(), REFRESH_MS);
     }
 })();

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Por categoría | CarCloudSPY{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">
+        <i class="bi bi-grid-3x3-gap"></i> Comparativo por categoría canónica
+    </h4>
+    <a href="/" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-list-ul"></i> Volver a vista por horizonte
+    </a>
+</div>
+
+{% if horizons %}
+<ul class="nav nav-pills mb-3">
+    {% for h in horizons %}
+    <li class="nav-item">
+        <a class="nav-link {% if h.pickup_date == selected_pickup %}active{% endif %}"
+           href="/buckets?pickup={{ h.pickup_date }}">
+            <span class="fw-bold">{{ h.pickup_date }}</span>
+            <span class="small opacity-75">· {{ h.rental_days }}d</span>
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<div class="alert alert-secondary small mb-4">
+    <i class="bi bi-info-circle"></i>
+    Cada fila es una <strong>categoría canónica</strong> agrupando categorías equivalentes de las 3 agencias.
+    Si una agencia tiene varios modelos en el bucket, se muestra el más barato.
+    El <strong class="text-success">precio en verde</strong> es el más bajo del bucket;
+    el <strong class="text-muted">delta %</strong> indica cuánto más caras son las otras vs el mínimo.
+</div>
+
+{% if not table_rows %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Sin tarifas capturadas para este horizonte.
+</div>
+{% else %}
+<div class="card shadow-sm mb-4">
+    <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Categoría canónica</th>
+                    {% for slug in agencia_slugs %}
+                    <th class="text-end" style="min-width:170px;">{{ agencia_names[slug] }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_rows %}
+                <tr>
+                    <td class="fw-semibold">{{ row.label }}</td>
+                    {% for slug in agencia_slugs %}
+                    {% set cell = row.cells[slug] %}
+                    <td class="text-end">
+                        {% if cell %}
+                            {% set is_min = (slug == row.cheapest_slug) %}
+                            <div class="{% if is_min %}text-success fw-bold{% else %}fw-bold{% endif %}">
+                                {{ cell.precio_total|money(cell.moneda) }}
+                                {% if is_min %}<i class="bi bi-trophy-fill ms-1" title="Más barato"></i>{% endif %}
+                            </div>
+                            <div class="small text-muted">
+                                {{ cell.precio_por_dia|money(cell.moneda) }}/día
+                            </div>
+                            <div class="small">
+                                <span class="text-muted">{{ cell.modelo or "-" }}</span>
+                            </div>
+                            <div class="small text-muted" style="font-size:0.7rem;">
+                                <code>{{ cell.categoria }}</code>
+                            </div>
+                            {% if not is_min and row.cheapest_slug %}
+                                {% set min_price = row.cells[row.cheapest_slug].precio_total %}
+                                {% if min_price > 0 %}
+                                    {% set delta_pct = ((cell.precio_total - min_price) / min_price) * 100 %}
+                                    <span class="badge bg-light text-danger small">
+                                        <i class="bi bi-arrow-up"></i> +{{ "%.0f"|format(delta_pct) }}% vs mín
+                                    </span>
+                                {% endif %}
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if unmapped %}
+<div class="card shadow-sm border-warning mb-4">
+    <div class="card-header bg-warning-subtle">
+        <strong><i class="bi bi-exclamation-triangle"></i> Categorías sin bucket asignado</strong>
+        <span class="badge bg-warning text-dark ms-2">{{ unmapped|length }}</span>
+        <div class="small mt-1">Estas categorías aparecen en los datos pero no están en <code>scrapers/buckets.py</code>. Agregalas al mapping si querés que entren en la comparativa.</div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Agencia</th>
+                    <th>Categoría nativa</th>
+                    <th>Modelo</th>
+                    <th class="text-end">Precio actual</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in unmapped %}
+                <tr>
+                    <td>{{ u.agencia }}</td>
+                    <td><code>{{ u.categoria }}</code></td>
+                    <td class="text-muted small">{{ u.modelo or "-" }}</td>
+                    <td class="text-end">${{ "{:,.0f}".format(u.precio_total).replace(",", ".") }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

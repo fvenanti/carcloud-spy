@@ -75,6 +75,82 @@ def comparativo(request: Request):
     )
 
 
+@router.get("/buckets", response_class=HTMLResponse)
+def buckets_view(request: Request, pickup: str | None = None):
+    """Comparativo por bucket canónico cross-agencia para un horizonte.
+
+    Por cada bucket muestra una fila por agencia con su precio (la categoría
+    nativa más barata si hay varias). Permite cruzar precios "manzana con manzana".
+    """
+    from scrapers.buckets import bucket_label, bucket_order, BUCKET_META
+
+    horizons = db.list_pickup_dates()
+    selected_pickup = pickup or (horizons[0]["pickup_date"] if horizons else None)
+
+    rows = db.latest_rates_by_bucket(pickup_date=selected_pickup) if selected_pickup else []
+    agencias = db.list_agencias()
+    agencia_slugs = [a["slug"] for a in agencias]
+    agencia_names = {a["slug"]: a["nombre"] for a in agencias}
+
+    # Pivot: {bucket: {agencia_slug: [rows...]}}
+    pivot: dict[str, dict[str, list]] = {}
+    for r in rows:
+        b = r["bucket"] or "_unmapped"
+        pivot.setdefault(b, {}).setdefault(r["agencia_slug"], []).append(dict(r))
+
+    # Construir filas ordenadas. Cada fila: {bucket, label, agencies: {slug: best_row|None}}
+    table_rows = []
+    seen_buckets = set()
+    for bucket_slug in sorted(pivot.keys(), key=bucket_order):
+        if bucket_slug == "_unmapped":
+            continue
+        seen_buckets.add(bucket_slug)
+        per_agency = pivot[bucket_slug]
+        cells = {}
+        for slug in agencia_slugs:
+            cands = per_agency.get(slug, [])
+            best = min(cands, key=lambda x: x["precio_total"]) if cands else None
+            cells[slug] = best
+        prices = [c["precio_total"] for c in cells.values() if c]
+        cheapest_slug = None
+        if prices:
+            min_p = min(prices)
+            cheapest_slug = next(slug for slug, c in cells.items() if c and c["precio_total"] == min_p)
+        table_rows.append({
+            "bucket": bucket_slug,
+            "label": bucket_label(bucket_slug),
+            "cells": cells,
+            "cheapest_slug": cheapest_slug,
+        })
+
+    # Categorías sin bucket asignado (info para el usuario)
+    unmapped = []
+    for slug, per_agency in pivot.items():
+        if slug != "_unmapped":
+            continue
+        for agency_slug, items in per_agency.items():
+            for it in items:
+                unmapped.append({
+                    "agencia": agency_slug,
+                    "categoria": it["categoria"],
+                    "modelo": it["modelo"],
+                    "precio_total": it["precio_total"],
+                })
+
+    return templates.TemplateResponse(
+        "buckets.html",
+        {
+            "request": request,
+            "horizons": horizons,
+            "selected_pickup": selected_pickup,
+            "table_rows": table_rows,
+            "agencia_slugs": agencia_slugs,
+            "agencia_names": agencia_names,
+            "unmapped": unmapped,
+        },
+    )
+
+
 @router.get("/historial/{agencia_id}/{vehiculo_id}", response_class=HTMLResponse)
 def historial(request: Request, agencia_id: int, vehiculo_id: int):
     history = db.rate_history(agencia_id, vehiculo_id, limit=500)
