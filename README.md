@@ -98,30 +98,48 @@ Los 4 adapters actualmente devuelven **datos demo** porque las APIs reales son S
 
 Taraborelli probablemente tenga HTML server-rendered → parsear con `BeautifulSoup` la página de tarifas.
 
-## Deploy en la EC2 de CarCloud
+## Deploy en producción (EC2)
 
-Según `Carcloud-ec2/INFRA_HANDOFF.md` la EC2 ya tiene Docker + nginx + cert Let's Encrypt. Para sumar esta app:
+**URL pública:** https://spy.aba.benvert.com.ar
+**Repo:** https://github.com/fvenanti/carcloud-spy
+**Dir en EC2:** `/home/ubuntu/carcloudspy/`
+**Puerto interno:** `127.0.0.1:8004` (bind a localhost — solo accesible vía nginx)
+**Nginx site:** `/etc/nginx/sites-available/carcloudspy` → server_name `spy.aba.benvert.com.ar`
+**Cert SSL:** Let's Encrypt, renovación automática vía `certbot.timer`
 
-1. `git clone` en `/home/ubuntu/carcloudspy/`
-2. Copiar `.env.example` → `.env` y ajustar
-3. `sudo docker compose up -d --build`
-4. Agregar bloque a `/etc/nginx/sites-available/carcloud`:
+### Flujo de deploy
 
-```nginx
-location /spy/ {
-    proxy_pass         http://127.0.0.1:8001/;
-    proxy_set_header   Host              $host;
-    proxy_set_header   X-Real-IP         $remote_addr;
-    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header   X-Forwarded-Proto $scheme;
-}
+```powershell
+# Local
+git add . ; git commit -m "..." ; git push origin main
 ```
 
-5. `sudo nginx -t && sudo systemctl reload nginx`
+```bash
+# EC2
+ssh -i C:\Users\fvena\.ssh\carcloud_aba.pem ubuntu@98.88.118.221
+cd /home/ubuntu/carcloudspy
+git pull origin main
 
-Si se usa subpath (`/spy/`), agregar `root_path="/spy"` al `FastAPI(...)` en `main.py`.
+# Si solo cambiaron templates/static/routers/scrapers -> ya esta activo (volumen)
+# Si cambio main.py / database.py / scheduler.py / requirements.txt -> rebuild:
+sudo docker compose up -d --build
+```
 
-Puerto sugerido: **8001** (8000 está tomado por CarCloud, ver §4 del handoff).
+### Comandos útiles
+
+```bash
+# logs en vivo
+sudo docker logs carcloudspy -f
+
+# restart sin rebuild
+sudo docker compose restart
+
+# ver scrapeos recientes
+curl -s http://127.0.0.1:8004/api/runs | python3 -m json.tool | head -40
+
+# forzar scrape manual
+curl -X POST http://127.0.0.1:8004/api/refresh
+```
 
 ## Variables de entorno
 
