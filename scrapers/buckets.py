@@ -83,6 +83,21 @@ _MAPPING: dict[str, dict[str, str]] = {
         "(R) SUV Prestige 4X4":              "premium_ultra",
         "(XX) Camioneta Premium":            "premium_ultra",
     },
+    # Correntoso: códigos B/C/CVT/D/E/F. Mapeo basado en descripción del modelo:
+    #   B = "Vehículo 5 Puertas" (compacto MT genérico)
+    #   C = "Vehículo 4 Puertas con baúl" (sedán medio MT)
+    #   CVT = "Renault Sandero Caja Automática" (compacto AT)
+    #   D = "VW T-Cross Caja Automática" (SUV compacto AT)
+    #   E = "Renault Kangoo ZEN 5/7 Pax" (familiar 7 pax — pero Manual)
+    #   F = "Renault Alaskan 4X4" (pickup 4x4)
+    "correntoso": {
+        "B": "compacto_mt",
+        "C": "sedan_medio_mt",
+        "CVT": "compacto_at",
+        "D": "suv_compacto_at",
+        "E": "familiar_7pax",
+        "F": "pickup_4x4_mt",
+    },
     "taraborelli": {
         "Mini":                                            "mini",
         "Compacto MT":                                     "compacto_mt",
