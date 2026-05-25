@@ -1,6 +1,6 @@
-// Auto-refresh del dashboard cada 30s + botón manual de scrape.
+// Auto-refresh del dashboard cada 1h (alineado con frecuencia de scrape) + botón manual de scrape.
 (function () {
-    const REFRESH_MS = 30_000;
+    const REFRESH_MS = 60 * 60 * 1000;  // 1h — el scheduler corre cada 1h
 
     const btn = document.getElementById('btn-refresh');
     if (btn) {
