@@ -12,7 +12,9 @@ import os
 from datetime import date, datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from zoneinfo import ZoneInfo
 
 import database as db
 from scrapers import ADAPTERS, RateAdapter
@@ -105,12 +107,35 @@ def run_all() -> None:
     log.info("== Corrida terminada. Total rates: %d ==", total)
 
 
+def run_promo_scrape() -> None:
+    """Scrape diario de promociones web (4 agencias).
+
+    Las promos detectadas se persisten en `promociones`. La dedupe es por
+    `hash` (sha256 de source+url+raw_text), asi que correr varias veces el
+    mismo dia no genera filas duplicadas.
+
+    Las promos de Instagram se ingresan via API (`/api/promos/ingest_ig`)
+    desde un cliente local con Chrome real logueado.
+    """
+    from scrapers.promos import scrape_web_promos
+
+    log.info("== Iniciando scrape de promos web ==")
+    promos = scrape_web_promos()
+    nuevas = 0
+    for p in promos:
+        if db.upsert_promo(p.to_db_dict()):
+            nuevas += 1
+    log.info("== Promos web: %d candidatas, %d nuevas ==", len(promos), nuevas)
+
+
 def start_scheduler() -> BackgroundScheduler:
     global _scheduler
     if _scheduler:
         return _scheduler
 
     interval_min = int(os.getenv("SCRAPE_INTERVAL_MIN", "15"))
+    promo_hour   = int(os.getenv("PROMO_SCRAPE_HOUR_ART", "8"))
+    art_tz       = ZoneInfo("America/Argentina/Buenos_Aires")
     sched = BackgroundScheduler(timezone=timezone.utc)
     sched.add_job(
         run_all,
@@ -121,9 +146,18 @@ def start_scheduler() -> BackgroundScheduler:
         max_instances=1,
         coalesce=True,
     )
+    sched.add_job(
+        run_promo_scrape,
+        trigger=CronTrigger(hour=promo_hour, minute=0, timezone=art_tz),
+        id="promo_scrape_web",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     sched.start()
     _scheduler = sched
-    log.info("Scheduler arrancado: cada %d minutos", interval_min)
+    log.info("Scheduler arrancado: rates cada %d min, promos web diario a %02d:00 ART",
+             interval_min, promo_hour)
     return sched
 
 

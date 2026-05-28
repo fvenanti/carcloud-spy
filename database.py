@@ -108,6 +108,26 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_runs_started
                 ON scrape_runs(started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS promociones (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                agencia_id        INTEGER NOT NULL REFERENCES agencias(id) ON DELETE CASCADE,
+                source            TEXT NOT NULL,
+                source_url        TEXT NOT NULL,
+                titulo            TEXT NOT NULL,
+                descuento_pct     REAL,
+                descuento_texto   TEXT,
+                vigencia_desde    DATE,
+                vigencia_hasta    DATE,
+                raw_text          TEXT NOT NULL,
+                posted_at         TIMESTAMP,
+                scraped_at        TIMESTAMP NOT NULL,
+                hash              TEXT NOT NULL UNIQUE
+            );
+            CREATE INDEX IF NOT EXISTS idx_promos_agencia
+                ON promociones(agencia_id, scraped_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_promos_scraped
+                ON promociones(scraped_at DESC);
             """
         )
 
@@ -443,6 +463,56 @@ def rate_history(agencia_id: int, vehiculo_id: int, limit: int = 1000) -> list[s
                 ORDER BY captured_at ASC
                 LIMIT ?""",
             (agencia_id, vehiculo_id, limit),
+        ).fetchall()
+
+
+def upsert_promo(p: dict) -> bool:
+    """Inserta promo si su `hash` no existe ya. True si fue nueva fila."""
+    with get_conn() as c:
+        agencia = c.execute("SELECT id FROM agencias WHERE slug=?", (p["agencia_slug"],)).fetchone()
+        if not agencia:
+            return False
+        try:
+            c.execute(
+                """INSERT INTO promociones
+                     (agencia_id, source, source_url, titulo, descuento_pct, descuento_texto,
+                      vigencia_desde, vigencia_hasta, raw_text, posted_at, scraped_at, hash)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    int(agencia["id"]),
+                    p["source"],
+                    p["source_url"],
+                    p["titulo"],
+                    p.get("descuento_pct"),
+                    p.get("descuento_texto"),
+                    p.get("vigencia_desde"),
+                    p.get("vigencia_hasta"),
+                    p["raw_text"],
+                    p.get("posted_at"),
+                    datetime.now(timezone.utc),
+                    p["hash"],
+                ),
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def latest_promos(max_age_days: int = 60) -> list[sqlite3.Row]:
+    """Promos detectadas en los ultimos N dias, mas recientes primero.
+
+    Ordena por posted_at (si tiene, caso IG) y si no por scraped_at.
+    """
+    with get_conn() as c:
+        return c.execute(
+            """SELECT p.*,
+                      a.slug   AS agencia_slug,
+                      a.nombre AS agencia_nombre
+                 FROM promociones p
+                 JOIN agencias a ON a.id = p.agencia_id
+                WHERE p.scraped_at > datetime('now', ?)
+                ORDER BY COALESCE(p.posted_at, p.scraped_at) DESC""",
+            (f"-{max_age_days} days",),
         ).fetchall()
 
 

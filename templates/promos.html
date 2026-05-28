@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Promos vigentes — CarCloudSPY{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0">
+        <i class="bi bi-megaphone"></i> Promociones detectadas
+        <span class="badge bg-secondary">{{ total }}</span>
+    </h4>
+    <div class="d-flex gap-2 align-items-center">
+        <span class="small text-muted">Últimos</span>
+        <select class="form-select form-select-sm" style="width:auto"
+                onchange="window.location='/promos?days='+this.value">
+            <option value="7"  {% if days == 7  %}selected{% endif %}>7 días</option>
+            <option value="30" {% if days == 30 %}selected{% endif %}>30 días</option>
+            <option value="60" {% if days == 60 %}selected{% endif %}>60 días</option>
+            <option value="90" {% if days == 90 %}selected{% endif %}>90 días</option>
+        </select>
+    </div>
+</div>
+
+{% if total == 0 %}
+<div class="alert alert-warning">
+    No hay promos detectadas en los últimos {{ days }} días.
+    <div class="small mt-2 text-muted">
+        El scrape de web corre diario a las 08:00 ART. El de Instagram lo dispara
+        el cliente local de Windows (Tarea Programada).
+    </div>
+</div>
+{% endif %}
+
+{% for agencia_nombre, promos in by_agency.items() %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong>{{ agencia_nombre }}</strong>
+        <span class="badge bg-light text-dark border">{{ promos|length }} promo{{ 's' if promos|length != 1 else '' }}</span>
+    </div>
+    <ul class="list-group list-group-flush">
+        {% for p in promos %}
+        <li class="list-group-item">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="flex-grow-1">
+                    <div class="d-flex gap-2 align-items-center mb-1">
+                        {% if p.source == 'instagram' %}
+                            <span class="badge bg-danger">
+                                <i class="bi bi-instagram"></i> IG
+                            </span>
+                        {% else %}
+                            <span class="badge bg-primary">
+                                <i class="bi bi-globe"></i> Web
+                            </span>
+                        {% endif %}
+                        {% if p.descuento_pct %}
+                            <span class="badge bg-success fs-6">{{ p.descuento_pct|int }}% OFF</span>
+                        {% elif p.descuento_texto %}
+                            <span class="badge bg-info text-dark">{{ p.descuento_texto }}</span>
+                        {% endif %}
+                        {% if p.vigencia_hasta %}
+                            <span class="badge bg-warning text-dark">
+                                <i class="bi bi-calendar-event"></i> hasta {{ p.vigencia_hasta }}
+                            </span>
+                        {% endif %}
+                    </div>
+                    <div class="fw-bold mb-1">{{ p.titulo }}</div>
+                    <div class="small text-muted" style="white-space: pre-wrap; max-height:120px; overflow:auto;">{{ p.raw_text }}</div>
+                </div>
+                <div class="text-end small text-muted" style="min-width:140px;">
+                    {% if p.posted_at %}
+                        <div><i class="bi bi-clock"></i> {{ p.posted_at[:10] }}</div>
+                    {% endif %}
+                    <div><i class="bi bi-search"></i> {{ p.scraped_at[:10] }}</div>
+                    <a href="{{ p.source_url }}" target="_blank" rel="noopener" class="d-block mt-1">
+                        Ver fuente <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endfor %}
+{% endblock %}

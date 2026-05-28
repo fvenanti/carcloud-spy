@@ -215,6 +215,25 @@ def buckets_view(request: Request, pickup: str | None = None):
     )
 
 
+@router.get("/promos", response_class=HTMLResponse)
+def promos_view(request: Request, days: int = 60):
+    """Promociones detectadas (web + IG) en los ultimos N dias."""
+    promos = db.latest_promos(max_age_days=days)
+    by_agency: dict[str, list[dict]] = {}
+    for p in promos:
+        d = dict(p)
+        by_agency.setdefault(d["agencia_nombre"], []).append(d)
+    return templates.TemplateResponse(
+        "promos.html",
+        {
+            "request": request,
+            "by_agency": by_agency,
+            "total": len(promos),
+            "days": days,
+        },
+    )
+
+
 @router.get("/historial/{agencia_id}/{vehiculo_id}", response_class=HTMLResponse)
 def historial(request: Request, agencia_id: int, vehiculo_id: int):
     history = db.rate_history(agencia_id, vehiculo_id, limit=500)

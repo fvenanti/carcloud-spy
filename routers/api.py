@@ -1,11 +1,18 @@
-"""Endpoints JSON consumidos por el dashboard via fetch()."""
+"""Endpoints JSON consumidos por el dashboard via fetch() + ingest externos."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import logging
+import os
+
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel
 
 import database as db
 from scheduler import run_all
+from scrapers.promos import promo_from_ig_post
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -46,3 +53,52 @@ def refresh():
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Ingest de promociones desde Instagram (cliente local Windows)
+# ============================================================
+
+class IgPostIn(BaseModel):
+    url: str
+    caption: str
+    posted_at: str | None = None  # ISO 8601
+
+
+class IgBatchIn(BaseModel):
+    agencia_slug: str
+    posts: list[IgPostIn]
+
+
+def _check_token(x_auth_token: str | None) -> None:
+    expected = os.getenv("PROMO_INGEST_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="ingest disabled: PROMO_INGEST_TOKEN not set")
+    if not x_auth_token or x_auth_token.strip() != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+@router.post("/promos/ingest_ig")
+def ingest_ig(batch: IgBatchIn, x_auth_token: str | None = Header(None, alias="X-Auth-Token")):
+    """Recibe posts de IG de una agencia. Server detecta promos y guarda matches."""
+    _check_token(x_auth_token)
+    log.info("ingest_ig: %s -> %d posts", batch.agencia_slug, len(batch.posts))
+    detectadas = 0
+    nuevas = 0
+    for p in batch.posts:
+        promo = promo_from_ig_post(
+            agencia_slug=batch.agencia_slug,
+            post_url=p.url,
+            caption=p.caption,
+            posted_at=p.posted_at,
+        )
+        if not promo:
+            continue
+        detectadas += 1
+        if db.upsert_promo(promo.to_db_dict()):
+            nuevas += 1
+    return {
+        "received": len(batch.posts),
+        "detected": detectadas,
+        "new": nuevas,
+    }
