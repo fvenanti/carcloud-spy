@@ -218,10 +218,18 @@ def buckets_view(request: Request, pickup: str | None = None):
 @router.get("/promos", response_class=HTMLResponse)
 def promos_view(request: Request, days: int = 60):
     """Promociones detectadas (web + IG) en los ultimos N dias."""
+    from datetime import datetime as _dt
+
     promos = db.latest_promos(max_age_days=days)
     by_agency: dict[str, list[dict]] = {}
     for p in promos:
         d = dict(p)
+        # sqlite con PARSE_DECLTYPES devuelve TIMESTAMP como datetime,
+        # el template hace `[:10]` asi que normalizamos a string ISO.
+        for k in ("posted_at", "scraped_at", "vigencia_desde", "vigencia_hasta"):
+            v = d.get(k)
+            if isinstance(v, _dt):
+                d[k] = v.isoformat()
         by_agency.setdefault(d["agencia_nombre"], []).append(d)
     return templates.TemplateResponse(
         "promos.html",
