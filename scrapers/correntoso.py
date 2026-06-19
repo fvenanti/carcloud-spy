@@ -63,8 +63,12 @@ class CorrentosoAdapter(BaseAdapter):
     def fetch(self, query: RateQuery) -> AdapterResult:
         try:
             return self._fetch_live(query)
-        except Exception as e:
-            log.warning("Correntoso live fetch fallo, devolviendo demo: %s", e)
+        except Exception:
+            # log.exception deja el traceback en los logs del container,
+            # util para diagnosticar por que live falla en EC2 pero anda local.
+            # El fallback demo ahora respeta el formato del live (categoria=cat_code),
+            # asi que la UI no se rompe.
+            log.exception("Correntoso live fetch fallo, devolviendo demo")
             return self._fetch_demo(query)
 
     def _fetch_live(self, query: RateQuery) -> AdapterResult:
@@ -189,9 +193,11 @@ class CorrentosoAdapter(BaseAdapter):
             ("E", "Renault Kangoo ZEN para 5/7 Pasajeros",       "Manual",     7, 650000.0),
             ("F", "Renault Alaskan 4X4",                         "Manual",     5, 850000.0),
         ]
+        # IMPORTANTE: categoria=cat (igual que el live). Si concatenamos "cat - mod"
+        # el bucket mapping no resuelve y las filas no aparecen en /matriz ni /buckets.
         quotes = [
             RateQuote(
-                categoria=f"{cat} - {mod}", modelo=mod, transmision=trans, pasajeros=pas,
+                categoria=cat, modelo=mod, transmision=trans, pasajeros=pas,
                 moneda="ARS", precio_total=total, precio_por_dia=round(total/days, 2),
                 external_code=cat, disponible=True, raw_payload="demo",
             )

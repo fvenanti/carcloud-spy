@@ -49,6 +49,27 @@ def _ensure_bucket_column(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE vehiculos ADD COLUMN bucket TEXT")
 
 
+def _purge_correntoso_legacy(c: sqlite3.Connection) -> None:
+    """Borra vehiculos de Correntoso con categoria formato legacy 'X - desc'.
+
+    Bug historico: cuando el live fetch de Correntoso fallaba, el fallback demo
+    persistia categoria como 'B - Vehiculo 5 Puertas' (con guion + modelo) en
+    vez de solo 'B'. Como el bucket mapping en scrapers/buckets.py espera la
+    forma corta, esos vehiculos quedaban con bucket=NULL y nunca aparecian en
+    /matriz ni /buckets. ON DELETE CASCADE de rates limpia los precios viejos.
+    """
+    agencia = c.execute("SELECT id FROM agencias WHERE slug='correntoso'").fetchone()
+    if not agencia:
+        return
+    cur = c.execute(
+        "DELETE FROM vehiculos WHERE agencia_id=? AND categoria LIKE '% - %'",
+        (int(agencia["id"]),),
+    )
+    if cur.rowcount:
+        log = __import__("logging").getLogger(__name__)
+        log.info("Purgadas %d filas legacy de vehiculos de Correntoso", cur.rowcount)
+
+
 def init_db() -> None:
     """Crea el esquema y siembra las agencias iniciales."""
     with get_conn() as c:
@@ -132,6 +153,7 @@ def init_db() -> None:
         )
 
         _ensure_bucket_column(c)
+        _purge_correntoso_legacy(c)
 
         # Seed agencias iniciales (idempotente)
         seed = [
