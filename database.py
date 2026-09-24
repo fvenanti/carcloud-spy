@@ -255,15 +255,15 @@ def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def latest_rates_by_bucket(pickup_date: str | None = None) -> list[sqlite3.Row]:
+def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 6) -> list[sqlite3.Row]:
     """Última tarifa por (agencia, vehiculo, pickup_date) con bucket info.
 
     Para la vista comparativa cross-agencia agrupada por bucket canónico.
     """
-    params: list = []
-    where = ""
+    params: list = [f"-{max_age_hours} hours"]
+    where = "WHERE captured_at > datetime('now', ?)"
     if pickup_date:
-        where = "WHERE pickup_date = ?"
+        where += " AND pickup_date = ?"
         params.append(pickup_date)
     with get_conn() as c:
         return c.execute(
@@ -340,15 +340,15 @@ def finish_run(run_id: int, status: str, rates_count: int = 0, error_msg: str | 
         )
 
 
-def latest_rates(pickup_date: str | None = None) -> list[sqlite3.Row]:
+def latest_rates(pickup_date: str | None = None, max_age_hours: int = 6) -> list[sqlite3.Row]:
     """Última tarifa conocida por (agencia, vehículo, pickup_date).
 
     Si `pickup_date` viene seteado (YYYY-MM-DD), filtra solo ese horizonte.
     """
-    params: list = []
-    where = ""
+    params: list = [f"-{max_age_hours} hours"]
+    where = "WHERE captured_at > datetime('now', ?)"
     if pickup_date:
-        where = "WHERE pickup_date = ?"
+        where += " AND pickup_date = ?"
         params.append(pickup_date)
     with get_conn() as c:
         return c.execute(
@@ -393,6 +393,10 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
 
     Para cada pickup_date toma `rental_days`/`dropoff_date` de la observación
     más reciente (refleja la configuración activa del scheduler, no el legacy).
+
+    El filtro por captured_at va DENTRO de los CTEs para que use
+    idx_rates_captured; sin eso ordena la tabla `rates` completa (504 en /).
+    `rates_count` es la cantidad de observaciones dentro de la ventana.
     """
     with get_conn() as c:
         return c.execute(
@@ -407,12 +411,14 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
                            ORDER BY captured_at DESC
                        ) AS rn
                   FROM rates
+                 WHERE captured_at > datetime('now', ?)
             ),
             counts AS (
                 SELECT pickup_date,
                        COUNT(*)        AS rates_count,
                        MAX(captured_at) AS last_captured
                   FROM rates
+                 WHERE captured_at > datetime('now', ?)
                  GROUP BY pickup_date
             )
             SELECT l.pickup_date,
@@ -423,10 +429,9 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
               FROM latest_per_pickup l
               JOIN counts c USING (pickup_date)
              WHERE l.rn = 1
-               AND c.last_captured > datetime('now', ?)
              ORDER BY l.pickup_date ASC
             """,
-            (f"-{max_age_hours} hours",),
+            (f"-{max_age_hours} hours", f"-{max_age_hours} hours"),
         ).fetchall()
 
 
@@ -475,17 +480,20 @@ def latest_rates_all_horizons(max_age_hours: int = 6) -> list[sqlite3.Row]:
 
 
 def rate_history(agencia_id: int, vehiculo_id: int, limit: int = 1000) -> list[sqlite3.Row]:
-    """Histórico completo, ordenado cronológicamente, incluyendo pickup_date
+    """Últimas `limit` observaciones, ordenadas cronológicamente, incluyendo pickup_date
     para que el cliente pueda separar las series por horizonte."""
     with get_conn() as c:
-        return c.execute(
+        rows = c.execute(
             """SELECT pickup_date, precio_total, precio_por_dia, moneda, captured_at
                  FROM rates
                 WHERE agencia_id=? AND vehiculo_id=?
-                ORDER BY captured_at ASC
+                ORDER BY captured_at DESC
                 LIMIT ?""",
             (agencia_id, vehiculo_id, limit),
         ).fetchall()
+        # Traemos los N mas recientes (antes ASC+LIMIT devolvia los N mas
+        # viejos y el historial quedaba congelado) y los damos cronologicos.
+        return rows[::-1]
 
 
 def upsert_promo(p: dict) -> bool:
