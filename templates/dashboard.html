@@ -39,7 +39,7 @@
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <div class="text-muted small text-uppercase">Próximo scrape</div>
-                <div class="fs-6 fw-bold" id="next-scrape-eta">cada 1 h</div>
+                <div class="fs-6 fw-bold" id="next-scrape-eta">1 vez por día (06:00 ART)</div>
                 <div class="small text-muted">Auto-refresh dashboard: 1 h</div>
             </div>
         </div>
@@ -62,7 +62,7 @@
 
 {% if not grouped %}
 <div class="alert alert-info">
-    <i class="bi bi-info-circle"></i> Todavía no hay tarifas capturadas para este horizonte. El próximo scrape corre cada 15 min — o disparalo manual con "Refrescar ahora".
+    <i class="bi bi-info-circle"></i> Todavía no hay tarifas capturadas para este horizonte. El scrape corre 1 vez por día a las 06:00 ART — o disparalo manual con "Refrescar ahora".
 </div>
 {% endif %}
 

@@ -20,6 +20,11 @@ from typing import Iterable, Iterator
 
 DB_PATH = Path(__file__).parent / "data" / "carcloudspy.db"
 
+# Las vistas muestran la ultima corrida: filas capturadas hasta `max_age_hours`
+# antes de la captura mas reciente de toda la tabla (no antes de "ahora").
+# Asi funcionan igual con scrape diario u horario, y si el scheduler se frena
+# siguen mostrando la ultima foto en vez de quedar vacias.
+
 
 def _ensure_dir() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -225,7 +230,7 @@ def get_or_create_vehiculo(
 
 _LAST_BATCH_CTE = """
             recent AS (
-                SELECT * FROM rates WHERE captured_at > datetime('now', ?)
+                SELECT * FROM rates WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)
             ),
             last_batch AS (
                 SELECT agencia_id, pickup_date, MAX(captured_at) AS cap
@@ -243,7 +248,7 @@ _LAST_BATCH_CTE = """
             )"""
 
 
-def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
+def matrix_data(max_age_hours: int = 3) -> list[sqlite3.Row]:
     """Para la vista matriz: por (bucket, agencia, pickup_date) el precio
     mínimo (la categoría nativa más barata de ese bucket para esa agencia).
 
@@ -272,7 +277,7 @@ def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def last_batch_status(max_age_hours: int = 6) -> dict[tuple[str, str], str]:
+def last_batch_status(max_age_hours: int = 3) -> dict[tuple[str, str], str]:
     """Estado de la última tanda por (agencia_slug, pickup_date): 'live' o 'demo'.
 
     Permite distinguir en la UI "sin disponibilidad" (hubo tanda live y la
@@ -284,7 +289,7 @@ def last_batch_status(max_age_hours: int = 6) -> dict[tuple[str, str], str]:
             WITH last_batch AS (
                 SELECT agencia_id, pickup_date, MAX(captured_at) AS cap
                   FROM rates
-                 WHERE captured_at > datetime('now', ?)
+                 WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)
                  GROUP BY agencia_id, pickup_date
             )
             SELECT a.slug AS agencia_slug,
@@ -303,7 +308,7 @@ def last_batch_status(max_age_hours: int = 6) -> dict[tuple[str, str], str]:
     return {(r["agencia_slug"], str(r["pickup_date"])): ("demo" if r["is_demo"] else "live") for r in rows}
 
 
-def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 6) -> list[sqlite3.Row]:
+def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 3) -> list[sqlite3.Row]:
     """Tarifas de la última tanda live por (agencia, pickup_date) con bucket info.
 
     Para la vista comparativa cross-agencia agrupada por bucket canónico.
@@ -381,13 +386,13 @@ def finish_run(run_id: int, status: str, rates_count: int = 0, error_msg: str | 
         )
 
 
-def latest_rates(pickup_date: str | None = None, max_age_hours: int = 6) -> list[sqlite3.Row]:
+def latest_rates(pickup_date: str | None = None, max_age_hours: int = 3) -> list[sqlite3.Row]:
     """Última tarifa conocida por (agencia, vehículo, pickup_date).
 
     Si `pickup_date` viene seteado (YYYY-MM-DD), filtra solo ese horizonte.
     """
     params: list = [f"-{max_age_hours} hours"]
-    where = "WHERE captured_at > datetime('now', ?)"
+    where = "WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)"
     if pickup_date:
         where += " AND pickup_date = ?"
         params.append(pickup_date)
@@ -429,8 +434,8 @@ def latest_rates(pickup_date: str | None = None, max_age_hours: int = 6) -> list
         ).fetchall()
 
 
-def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
-    """Pickup_dates con observaciones recientes (default últimas 2h).
+def list_pickup_dates(max_age_hours: int = 3) -> list[sqlite3.Row]:
+    """Pickup_dates de la última corrida (capturas hasta 3h antes de la más reciente).
 
     Para cada pickup_date toma `rental_days`/`dropoff_date` de la observación
     más reciente (refleja la configuración activa del scheduler, no el legacy).
@@ -452,14 +457,14 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
                            ORDER BY captured_at DESC
                        ) AS rn
                   FROM rates
-                 WHERE captured_at > datetime('now', ?)
+                 WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)
             ),
             counts AS (
                 SELECT pickup_date,
                        COUNT(*)        AS rates_count,
                        MAX(captured_at) AS last_captured
                   FROM rates
-                 WHERE captured_at > datetime('now', ?)
+                 WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)
                  GROUP BY pickup_date
             )
             SELECT l.pickup_date,
@@ -476,7 +481,7 @@ def list_pickup_dates(max_age_hours: int = 2) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def latest_rates_all_horizons(max_age_hours: int = 6) -> list[sqlite3.Row]:
+def latest_rates_all_horizons(max_age_hours: int = 3) -> list[sqlite3.Row]:
     """Última tarifa por (agencia, vehiculo, pickup_date) para horizontes activos.
 
     Pensada para pivot: cada fila es 1 punto del cruce. El router agrupa por
@@ -492,7 +497,7 @@ def latest_rates_all_horizons(max_age_hours: int = 6) -> list[sqlite3.Row]:
                            ORDER BY captured_at DESC
                        ) AS rn
                   FROM rates r
-                 WHERE captured_at > datetime('now', ?)
+                 WHERE captured_at > (SELECT datetime(MAX(captured_at), ?) FROM rates)
             )
             SELECT  a.slug      AS agencia_slug,
                     a.nombre    AS agencia_nombre,
@@ -585,6 +590,20 @@ def latest_promos(max_age_days: int = 60) -> list[sqlite3.Row]:
                 ORDER BY COALESCE(p.posted_at, p.scraped_at) DESC""",
             (f"-{max_age_days} days",),
         ).fetchall()
+
+
+def last_ok_run_at() -> datetime | None:
+    """started_at (UTC naive) de la ultima corrida ok de cualquier agencia."""
+    with get_conn() as c:
+        row = c.execute(
+            "SELECT MAX(started_at) AS t FROM scrape_runs WHERE status='ok'"
+        ).fetchone()
+    t = row["t"] if row else None
+    if isinstance(t, str):
+        t = datetime.fromisoformat(t)
+    if isinstance(t, datetime) and t.tzinfo is not None:
+        t = t.astimezone(timezone.utc).replace(tzinfo=None)
+    return t
 
 
 def recent_runs(limit: int = 20) -> list[sqlite3.Row]:

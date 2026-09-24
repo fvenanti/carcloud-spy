@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import database as db
-from scheduler import run_all
+from scheduler import persist_result, run_all
+from scrapers.base import AdapterResult, RateQuery, RateQuote
 from scrapers.promos import promo_from_ig_post
 
 log = logging.getLogger(__name__)
@@ -102,3 +104,67 @@ def ingest_ig(batch: IgBatchIn, x_auth_token: str | None = Header(None, alias="X
         "detected": detectadas,
         "new": nuevas,
     }
+
+
+# ============================================================
+# Ingest de rates capturados fuera de la EC2 (GitHub Actions)
+# ============================================================
+# Correntoso bloquea la IP de la EC2 (403). tools/remote_scrape.py lo cotiza
+# desde un runner de GitHub Actions y manda el resultado aca.
+
+class QuoteIn(BaseModel):
+    categoria: str
+    modelo: str | None = None
+    moneda: str
+    precio_total: float
+    precio_por_dia: float | None = None
+    transmision: str | None = None
+    pasajeros: int | None = None
+    external_code: str | None = None
+    disponible: bool = True
+    raw_payload: str | None = None
+
+
+class BatchIn(BaseModel):
+    pickup_date: date
+    dropoff_date: date
+    captured_at: datetime
+    quotes: list[QuoteIn] = []
+    error: str | None = None
+
+
+class RatesIngestIn(BaseModel):
+    agencia_slug: str
+    batches: list[BatchIn]
+
+
+@router.post("/rates/ingest")
+def ingest_rates(body: RatesIngestIn, x_auth_token: str | None = Header(None, alias="X-Auth-Token")):
+    expected = os.getenv("RATES_INGEST_TOKEN", "").strip()
+    if not expected:
+        raise HTTPException(status_code=503, detail="ingest disabled: RATES_INGEST_TOKEN not set")
+    if not x_auth_token or x_auth_token.strip() != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    agencia = next((a for a in db.list_agencias() if a["slug"] == body.agencia_slug), None)
+    if not agencia:
+        raise HTTPException(status_code=404, detail=f"agencia {body.agencia_slug!r} no existe o inactiva")
+    agencia_id = int(agencia["id"])
+
+    saved = 0
+    for b in body.batches:
+        run_id = db.start_run(agencia_id)
+        if b.error or not b.quotes:
+            db.finish_run(run_id, status="error", error_msg=f"remoto: {b.error or 'sin quotes'}")
+            continue
+        query = RateQuery(pickup_location="BRC", pickup_date=b.pickup_date, dropoff_date=b.dropoff_date)
+        cap = b.captured_at if b.captured_at.tzinfo else b.captured_at.replace(tzinfo=timezone.utc)
+        result = AdapterResult(
+            quotes=[RateQuote(**q.model_dump()) for q in b.quotes],
+            captured_at=cap.astimezone(timezone.utc),
+        )
+        n = persist_result(agencia_id, query, result)
+        db.finish_run(run_id, status="ok", rates_count=n)
+        saved += n
+    log.info("ingest_rates: %s -> %d batches, %d rates", body.agencia_slug, len(body.batches), saved)
+    return {"batches": len(body.batches), "saved": saved}

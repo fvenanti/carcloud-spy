@@ -1,0 +1,32 @@
+name: Scrape remoto (Correntoso)
+
+# Correntoso bloquea la IP de la EC2. Este job lo cotiza desde un runner de
+# GitHub (IP distinta) y manda los precios a /api/rates/ingest del spy.
+on:
+  schedule:
+    - cron: "10 9 * * *"   # 06:10 ART, 10 min despues de la corrida diaria de la EC2
+  workflow_dispatch:
+
+concurrency:
+  group: remote-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install httpx==0.28.1 beautifulsoup4==4.12.3 lxml==6.1.0
+      - name: Scrape + ingest
+        env:
+          SPY_BASE_URL: https://spy.aba.benvert.com.ar
+          SPY_INGEST_TOKEN: ${{ secrets.SPY_INGEST_TOKEN }}
+          REMOTE_AGENCIES: correntoso
+          HORIZONS_DAYS_AHEAD: "1,30,60,90"
+          RENTAL_DAYS: "7"
+          TZ: America/Argentina/Buenos_Aires
+        run: python tools/remote_scrape.py

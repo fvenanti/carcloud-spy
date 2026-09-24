@@ -13,8 +13,9 @@ Filosofía:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Protocol
 
 import httpx
@@ -107,3 +108,28 @@ class BaseAdapter:
 
     def __exit__(self, *exc):
         self.close()
+
+
+def queries_from_env() -> list[RateQuery]:
+    """Construye N queries (uno por horizonte) según HORIZONS_DAYS_AHEAD.
+
+    Lo usan el scheduler y el relay remoto (tools/remote_scrape.py), asi ambos
+    cotizan exactamente los mismos horizontes.
+    """
+    horizons_csv = os.getenv("HORIZONS_DAYS_AHEAD", "1,30,60,90")
+    rental_days  = int(os.getenv("RENTAL_DAYS", "7"))
+    location     = os.getenv("PICKUP_LOCATION", "BRC")
+
+    today = date.today()
+    queries: list[RateQuery] = []
+    for raw in horizons_csv.split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        pickup = today + timedelta(days=int(raw))
+        queries.append(RateQuery(
+            pickup_location=location,
+            pickup_date=pickup,
+            dropoff_date=pickup + timedelta(days=rental_days),
+        ))
+    return queries
