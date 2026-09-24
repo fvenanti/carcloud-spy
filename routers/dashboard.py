@@ -78,10 +78,11 @@ def comparativo(request: Request):
 @router.get("/matriz", response_class=HTMLResponse)
 def matriz_view(request: Request):
     """Matriz pivot completa: filas=buckets, cols=agencia×horizonte."""
-    from scrapers.buckets import bucket_label, bucket_order
+    from scrapers.buckets import agency_buckets, bucket_label, bucket_order
     from datetime import date as _date
 
     rows = db.matrix_data()
+    batch_status = db.last_batch_status()
     horizons = db.list_pickup_dates()
     agencias = db.list_agencias()
 
@@ -134,6 +135,8 @@ def matriz_view(request: Request):
             "agencias": agencia_list,
             "pickup_labels": pickup_labels,
             "buckets": bucket_rows,
+            "batch_status": batch_status,
+            "agency_buckets": agency_buckets(),
             "moneda_default": "ARS",
         },
     )
@@ -146,7 +149,7 @@ def buckets_view(request: Request, pickup: str | None = None):
     Por cada bucket muestra una fila por agencia con su precio (la categoría
     nativa más barata si hay varias). Permite cruzar precios "manzana con manzana".
     """
-    from scrapers.buckets import bucket_label, bucket_order, BUCKET_META
+    from scrapers.buckets import agency_buckets, bucket_label, bucket_order
 
     horizons = db.list_pickup_dates()
     selected_pickup = pickup or (horizons[0]["pickup_date"] if horizons else None)
@@ -208,6 +211,8 @@ def buckets_view(request: Request, pickup: str | None = None):
             "horizons": horizons,
             "selected_pickup": selected_pickup,
             "table_rows": table_rows,
+            "batch_status": db.last_batch_status(),
+            "agency_buckets": agency_buckets(),
             "agencia_slugs": agencia_slugs,
             "agencia_names": agencia_names,
             "unmapped": unmapped,

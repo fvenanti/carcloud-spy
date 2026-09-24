@@ -223,21 +223,38 @@ def get_or_create_vehiculo(
         return int(cur.lastrowid)
 
 
+_LAST_BATCH_CTE = """
+            recent AS (
+                SELECT * FROM rates WHERE captured_at > datetime('now', ?)
+            ),
+            last_batch AS (
+                SELECT agencia_id, pickup_date, MAX(captured_at) AS cap
+                  FROM recent
+                 GROUP BY agencia_id, pickup_date
+            ),
+            latest AS (
+                SELECT r.*
+                  FROM recent r
+                  JOIN last_batch lb
+                    ON lb.agencia_id = r.agencia_id
+                   AND lb.pickup_date = r.pickup_date
+                   AND lb.cap = r.captured_at
+                 WHERE COALESCE(r.raw_payload, '') <> 'demo'
+            )"""
+
+
 def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
     """Para la vista matriz: por (bucket, agencia, pickup_date) el precio
-    mínimo (la categoría nativa más barata de ese bucket para esa agencia)."""
+    mínimo (la categoría nativa más barata de ese bucket para esa agencia).
+
+    Solo usa la última tanda capturada por (agencia, pickup_date): si una
+    categoría no vino en esa tanda, no tiene disponibilidad ahora. Las tandas
+    demo (fallback cuando falla el live) se excluyen: sus precios son ficticios.
+    """
     with get_conn() as c:
         return c.execute(
-            """
-            WITH latest AS (
-                SELECT r.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY agencia_id, vehiculo_id, pickup_date
-                           ORDER BY captured_at DESC
-                       ) AS rn
-                  FROM rates r
-                 WHERE captured_at > datetime('now', ?)
-            )
+            f"""
+            WITH {_LAST_BATCH_CTE}
             SELECT v.bucket          AS bucket,
                    a.slug            AS agencia_slug,
                    a.nombre          AS agencia_nombre,
@@ -247,7 +264,7 @@ def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
               FROM latest l
               JOIN agencias  a ON a.id = l.agencia_id
               JOIN vehiculos v ON v.id = l.vehiculo_id
-             WHERE l.rn = 1 AND v.bucket IS NOT NULL
+             WHERE v.bucket IS NOT NULL
              GROUP BY v.bucket, a.slug, l.pickup_date
              ORDER BY v.bucket, a.slug, l.pickup_date
             """,
@@ -255,28 +272,52 @@ def matrix_data(max_age_hours: int = 6) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def last_batch_status(max_age_hours: int = 6) -> dict[tuple[str, str], str]:
+    """Estado de la última tanda por (agencia_slug, pickup_date): 'live' o 'demo'.
+
+    Permite distinguir en la UI "sin disponibilidad" (hubo tanda live y la
+    categoría no vino) de "sin datos" (no hubo tanda o el live falló -> demo).
+    """
+    with get_conn() as c:
+        rows = c.execute(
+            """
+            WITH last_batch AS (
+                SELECT agencia_id, pickup_date, MAX(captured_at) AS cap
+                  FROM rates
+                 WHERE captured_at > datetime('now', ?)
+                 GROUP BY agencia_id, pickup_date
+            )
+            SELECT a.slug AS agencia_slug,
+                   lb.pickup_date,
+                   MAX(COALESCE(r.raw_payload, '') = 'demo') AS is_demo
+              FROM last_batch lb
+              JOIN rates r
+                ON r.agencia_id = lb.agencia_id
+               AND r.pickup_date = lb.pickup_date
+               AND r.captured_at = lb.cap
+              JOIN agencias a ON a.id = lb.agencia_id
+             GROUP BY a.slug, lb.pickup_date
+            """,
+            (f"-{max_age_hours} hours",),
+        ).fetchall()
+    return {(r["agencia_slug"], str(r["pickup_date"])): ("demo" if r["is_demo"] else "live") for r in rows}
+
+
 def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 6) -> list[sqlite3.Row]:
-    """Última tarifa por (agencia, vehiculo, pickup_date) con bucket info.
+    """Tarifas de la última tanda live por (agencia, pickup_date) con bucket info.
 
     Para la vista comparativa cross-agencia agrupada por bucket canónico.
+    Misma semántica que `matrix_data` (sin demo, sin categorías que ya no vinieron).
     """
     params: list = [f"-{max_age_hours} hours"]
-    where = "WHERE captured_at > datetime('now', ?)"
+    where = ""
     if pickup_date:
-        where += " AND pickup_date = ?"
+        where = "WHERE l.pickup_date = ?"
         params.append(pickup_date)
     with get_conn() as c:
         return c.execute(
             f"""
-            WITH latest AS (
-                SELECT r.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY agencia_id, vehiculo_id, pickup_date
-                           ORDER BY captured_at DESC
-                       ) AS rn
-                  FROM rates r
-                  {where}
-            )
+            WITH {_LAST_BATCH_CTE}
             SELECT  a.slug      AS agencia_slug,
                     a.nombre    AS agencia_nombre,
                     v.categoria,
@@ -296,7 +337,7 @@ def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 
               FROM latest l
               JOIN agencias  a ON a.id = l.agencia_id
               JOIN vehiculos v ON v.id = l.vehiculo_id
-             WHERE l.rn = 1
+             {where}
              ORDER BY a.nombre, l.precio_total
             """,
             params,

@@ -81,7 +81,16 @@
                                 {% endif %}
                             {% endif %}
                         {% else %}
-                            <span class="text-muted">—</span>
+                            {% set status = batch_status.get((slug, selected_pickup|string)) %}
+                            {% if status == 'live' and row.bucket not in agency_buckets.get(slug, []) %}
+                                <span class="text-muted" title="La agencia no tiene esta categoría en su catálogo">—</span>
+                            {% elif status == 'live' %}
+                                <span class="text-muted fst-italic small" title="La agencia respondió pero no ofrece esta categoría para esta fecha">sin dispo</span>
+                            {% elif status == 'demo' %}
+                                <span class="text-muted" title="Falló el scrape de esta agencia (sin datos reales)">—</span>
+                            {% else %}
+                                <span class="text-muted" title="Sin capturas recientes">—</span>
+                            {% endif %}
                         {% endif %}
                     </td>
                     {% endfor %}

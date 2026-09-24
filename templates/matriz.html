@@ -16,6 +16,7 @@ table.matriz thead tr.lvl2 th { font-weight: 500; color: #6b7280; font-size: .78
 table.matriz td.cat-label { font-weight: 600; background: #fafbfc; position: sticky; left: 0; z-index: 1; min-width: 220px; }
 table.matriz td.price { text-align: right; padding: .4rem .7rem; font-variant-numeric: tabular-nums; }
 table.matriz td.empty { color: #c0c5ce; text-align: right; }
+table.matriz td.sin-dispo { color: #9ca3af; font-style: italic; font-size: .75rem; text-align: right; white-space: nowrap; }
 table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
 .cell-highlight { background: #d1fae5 !important; color: #065f46; font-weight: 600; }
 .cell-highlight-2 { background: #ecfdf5 !important; color: #065f46; }
@@ -94,11 +95,19 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
                         {% set outer = loop %}
                         {% for pd, _ in pickup_labels %}
                         {% set cell = row.data.get(slug, {}).get(pd) %}
-                        <td class="price{% if loop.first and not outer.first %} col-divider{% endif %}{% if not cell %} empty{% endif %}"
+                        {% set status = batch_status.get((slug, pd|string)) %}
+                        {% if status == 'live' and row.slug not in agency_buckets.get(slug, []) %}{% set status = 'na' %}{% endif %}
+                        <td class="price{% if loop.first and not outer.first %} col-divider{% endif %}{% if not cell %}{% if status == 'live' %} sin-dispo{% else %} empty{% endif %}{% endif %}"
                             data-slug="{{ slug }}" data-pickup="{{ pd }}"
-                            {% if cell %}data-price="{{ cell.precio|int }}"{% endif %}>
+                            {% if cell %}data-price="{{ cell.precio|int }}"
+                            {% elif status == 'live' %}title="La agencia respondió pero no ofrece esta categoría para esta fecha"
+                            {% elif status == 'na' %}title="La agencia no tiene esta categoría en su catálogo"
+                            {% elif status == 'demo' %}title="Falló el scrape de esta agencia (sin datos reales)"
+                            {% else %}title="Sin capturas recientes"{% endif %}>
                             {% if cell %}
                                 {{ (cell.precio / 1000)|round|int }}
+                            {% elif status == 'live' %}
+                                sin dispo
                             {% else %}
                                 —
                             {% endif %}
@@ -113,6 +122,7 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
     <div class="card-footer small text-muted">
         Precios en <strong>miles de {{ moneda_default }}</strong> (ej. 374 = $374.000). Tarifa total por 7 días.
         Hovereá sobre una celda para ver el monto exacto.
+        <em>sin dispo</em> = la agencia respondió pero no ofrece esa categoría; — = la agencia no tiene esa categoría o no hay datos (scrape fallido). Hovereá para ver cuál.
     </div>
 </div>
 {% endif %}
@@ -205,6 +215,7 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
 
     // 4) Tooltip nativo con precio completo
     table.querySelectorAll('td.price[data-price]').forEach(td => {
+        if (td.title) return;
         const p = parseInt(td.dataset.price, 10);
         td.title = '$ ' + p.toLocaleString('es-AR');
     });

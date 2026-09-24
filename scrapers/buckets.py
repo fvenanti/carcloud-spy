@@ -131,6 +131,11 @@ def get_bucket(agencia_slug: str, categoria: str) -> str | None:
     return _MAPPING.get(agencia_slug, {}).get(categoria)
 
 
+def agency_buckets() -> dict[str, set[str]]:
+    """Buckets que cada agencia tiene en su catálogo (según el mapping)."""
+    return {slug: {b for b in m.values() if b} for slug, m in _MAPPING.items()}
+
+
 def bucket_label(bucket: str | None) -> str:
     if not bucket:
         return "Sin bucket"
