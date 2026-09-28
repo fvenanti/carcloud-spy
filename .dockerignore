@@ -1,0 +1,18 @@
+# La base (300+ MB) y el .env viven en el host y se montan como volumen /
+# env_file. Sin este archivo, `COPY . .` los metia en cada imagen: cada deploy
+# sumaba cientos de MB al disco de la EC2 (llego al 100% el 2026-09-28) y
+# dejaba los secretos adentro de la imagen.
+data/
+.env
+.env.*
+!.env.example
+.git/
+.github/
+tools/
+__pycache__/
+*.pyc
+*.log
+.venv/
+venv/
+.DS_Store
+CONTEXTO.md
