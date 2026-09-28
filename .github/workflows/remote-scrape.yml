@@ -4,7 +4,10 @@ name: Scrape remoto (Correntoso)
 # GitHub (IP distinta) y manda los precios a /api/rates/ingest del spy.
 on:
   schedule:
-    - cron: "10 9 * * *"   # 06:10 ART, 10 min despues de la corrida diaria de la EC2
+    # 00:30 ART. GitHub demora los cron programados 4-5h, asi que en la practica
+    # entra cerca de la corrida de la EC2 (06:00 ART). Antes de las 00:00 ART no:
+    # las fechas de retiro se calculan con el dia en Argentina.
+    - cron: "30 3 * * *"
   workflow_dispatch:
 
 concurrency:
