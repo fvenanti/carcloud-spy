@@ -78,9 +78,9 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
                 <tr class="lvl2">
                     {% for slug, _ in agencias %}
                         {% set outer = loop %}
-                        {% for pd, label in pickup_labels %}
-                        <th class="text-center{% if loop.first and not outer.first %} col-divider{% endif %}"
-                            data-slug="{{ slug }}" data-pickup="{{ pd }}">
+                        {% for pd, label, tooltip in pickup_labels %}
+                        <th class="text-center text-nowrap{% if loop.first and not outer.first %} col-divider{% endif %}"
+                            data-slug="{{ slug }}" data-pickup="{{ pd }}" title="{{ tooltip }}">
                             {{ label }}
                         </th>
                         {% endfor %}
@@ -93,7 +93,7 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
                     <td class="cat-label">{{ row.label }}</td>
                     {% for slug, _ in agencias %}
                         {% set outer = loop %}
-                        {% for pd, _ in pickup_labels %}
+                        {% for pd, _, _ in pickup_labels %}
                         {% set cell = row.data.get(slug, {}).get(pd) %}
                         {% set status = batch_status.get((slug, pd|string)) %}
                         {% if status == 'live' and row.slug not in agency_buckets.get(slug, []) %}{% set status = 'na' %}{% endif %}
@@ -121,6 +121,8 @@ table.matriz tbody tr:hover td:not(.cat-label) { background: #f6f8fa; }
     </div>
     <div class="card-footer small text-muted">
         Precios en <strong>miles de {{ moneda_default }}</strong> (ej. 374 = $374.000). Tarifa total por 7 días.
+        Cada columna muestra la fecha de retiro (10:00); hovereá el encabezado para ver la devolución.
+        Los horizontes son móviles: se recalculan cada día desde la fecha de hoy.
         Hovereá sobre una celda para ver el monto exacto.
         <em>sin dispo</em> = la agencia respondió pero no ofrece esa categoría; — = la agencia no tiene esa categoría o no hay datos (scrape fallido). Hovereá para ver cuál.
     </div>

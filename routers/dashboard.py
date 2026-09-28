@@ -90,24 +90,38 @@ def matriz_view(request: Request):
     pickup_dates = [h["pickup_date"] for h in horizons]
     today = _date.today().isoformat()
 
-    def horizon_label(pd: str) -> str:
-        try:
-            from datetime import datetime as dt_
-            d = dt_.fromisoformat(pd).date()
-            delta_days = (d - _date.today()).days
-            if delta_days <= 1:
-                return "Hoy"
-            if 25 <= delta_days <= 35:
-                return "+1m"
-            if 55 <= delta_days <= 65:
-                return "+2m"
-            if 85 <= delta_days <= 95:
-                return "+3m"
-            return f"+{delta_days}d"
-        except Exception:
-            return pd
+    def horizon_label(pd) -> tuple[str, str]:
+        """(etiqueta corta con fecha de retiro, tooltip con retiro -> devolucion).
 
-    pickup_labels = [(pd, horizon_label(pd)) for pd in pickup_dates]
+        pd puede venir como date (PARSE_DECLTYPES) o como str ISO.
+        """
+        try:
+            d = pd if isinstance(pd, _date) else _date.fromisoformat(str(pd)[:10])
+        except ValueError:
+            return str(pd), ""
+        delta_days = (d - _date.today()).days
+        if delta_days <= 0:
+            rel = "Hoy"
+        elif delta_days == 1:
+            rel = "Mañana"
+        elif 25 <= delta_days <= 35:
+            rel = "+1m"
+        elif 55 <= delta_days <= 65:
+            rel = "+2m"
+        elif 85 <= delta_days <= 95:
+            rel = "+3m"
+        else:
+            rel = f"+{delta_days}d"
+        h = horizons_by_pd.get(str(pd)[:10])
+        tooltip = f"Retiro {d:%d/%m/%Y} 10:00"
+        if h is not None:
+            dropoff = h["dropoff_date"]
+            dropoff = dropoff if isinstance(dropoff, _date) else _date.fromisoformat(str(dropoff)[:10])
+            tooltip += f" → devolución {dropoff:%d/%m/%Y} 10:00 ({h['rental_days']} días)"
+        return f"{rel} · {d:%d/%m}", tooltip
+
+    horizons_by_pd = {str(h["pickup_date"])[:10]: h for h in horizons}
+    pickup_labels = [(pd, *horizon_label(pd)) for pd in pickup_dates]
     agencia_list = [(a["slug"], a["nombre"]) for a in agencias]
 
     # Pivot: {bucket: {agencia_slug: {pickup_date: precio}}}
