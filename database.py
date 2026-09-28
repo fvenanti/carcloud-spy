@@ -20,10 +20,19 @@ from typing import Iterable, Iterator
 
 DB_PATH = Path(__file__).parent / "data" / "carcloudspy.db"
 
-# Las vistas muestran la ultima corrida: filas capturadas hasta `max_age_hours`
-# antes de la captura mas reciente de toda la tabla (no antes de "ahora").
-# Asi funcionan igual con scrape diario u horario, y si el scheduler se frena
-# siguen mostrando la ultima foto en vez de quedar vacias.
+# Ventanas de tiempo, relativas a la captura mas reciente de toda la tabla (no
+# a "ahora"): si el scheduler se frena, las vistas siguen mostrando la ultima
+# foto en vez de quedar vacias.
+#
+# - list_pickup_dates usa HORIZON_WINDOW_HOURS: los horizontes vigentes son las
+#   fechas de retiro de la corrida mas reciente (todas las corridas del mismo
+#   dia cotizan las mismas fechas).
+# - Las queries de datos usan DATA_WINDOW_HOURS (30h): cada agencia aporta su
+#   ultima tanda aunque haya corrido horas antes que otra (Correntoso llega via
+#   GitHub Actions, cuyo cron se demora varias horas). Los datos de ayer no se
+#   mezclan porque tienen otras fechas de retiro.
+HORIZON_WINDOW_HOURS = 3
+DATA_WINDOW_HOURS = 30
 
 
 def _ensure_dir() -> None:
@@ -248,7 +257,7 @@ _LAST_BATCH_CTE = """
             )"""
 
 
-def matrix_data(max_age_hours: int = 3) -> list[sqlite3.Row]:
+def matrix_data(max_age_hours: int = DATA_WINDOW_HOURS) -> list[sqlite3.Row]:
     """Para la vista matriz: por (bucket, agencia, pickup_date) el precio
     mínimo (la categoría nativa más barata de ese bucket para esa agencia).
 
@@ -277,7 +286,7 @@ def matrix_data(max_age_hours: int = 3) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def last_batch_status(max_age_hours: int = 3) -> dict[tuple[str, str], str]:
+def last_batch_status(max_age_hours: int = DATA_WINDOW_HOURS) -> dict[tuple[str, str], str]:
     """Estado de la última tanda por (agencia_slug, pickup_date): 'live' o 'demo'.
 
     Permite distinguir en la UI "sin disponibilidad" (hubo tanda live y la
@@ -308,7 +317,7 @@ def last_batch_status(max_age_hours: int = 3) -> dict[tuple[str, str], str]:
     return {(r["agencia_slug"], str(r["pickup_date"])): ("demo" if r["is_demo"] else "live") for r in rows}
 
 
-def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = 3) -> list[sqlite3.Row]:
+def latest_rates_by_bucket(pickup_date: str | None = None, max_age_hours: int = DATA_WINDOW_HOURS) -> list[sqlite3.Row]:
     """Tarifas de la última tanda live por (agencia, pickup_date) con bucket info.
 
     Para la vista comparativa cross-agencia agrupada por bucket canónico.
@@ -386,7 +395,7 @@ def finish_run(run_id: int, status: str, rates_count: int = 0, error_msg: str | 
         )
 
 
-def latest_rates(pickup_date: str | None = None, max_age_hours: int = 3) -> list[sqlite3.Row]:
+def latest_rates(pickup_date: str | None = None, max_age_hours: int = DATA_WINDOW_HOURS) -> list[sqlite3.Row]:
     """Última tarifa conocida por (agencia, vehículo, pickup_date).
 
     Si `pickup_date` viene seteado (YYYY-MM-DD), filtra solo ese horizonte.
@@ -434,7 +443,7 @@ def latest_rates(pickup_date: str | None = None, max_age_hours: int = 3) -> list
         ).fetchall()
 
 
-def list_pickup_dates(max_age_hours: int = 3) -> list[sqlite3.Row]:
+def list_pickup_dates(max_age_hours: int = HORIZON_WINDOW_HOURS) -> list[sqlite3.Row]:
     """Pickup_dates de la última corrida (capturas hasta 3h antes de la más reciente).
 
     Para cada pickup_date toma `rental_days`/`dropoff_date` de la observación
@@ -481,7 +490,7 @@ def list_pickup_dates(max_age_hours: int = 3) -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def latest_rates_all_horizons(max_age_hours: int = 3) -> list[sqlite3.Row]:
+def latest_rates_all_horizons(max_age_hours: int = DATA_WINDOW_HOURS) -> list[sqlite3.Row]:
     """Última tarifa por (agencia, vehiculo, pickup_date) para horizontes activos.
 
     Pensada para pivot: cada fila es 1 punto del cruce. El router agrupa por
