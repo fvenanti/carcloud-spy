@@ -37,6 +37,50 @@ def remote_agencies() -> set[str]:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
+_REMOTE_COOLDOWN = timedelta(minutes=5)
+_last_dispatch: datetime | None = None
+
+
+def dispatch_remote_scrape() -> str:
+    """Dispara el workflow de GitHub Actions que cotiza las agencias remotas.
+
+    Lo usa el boton "Refrescar ahora": desde la EC2 no se puede cotizar
+    Correntoso (IP bloqueada). Necesita GITHUB_DISPATCH_TOKEN (fine-grained
+    PAT con Actions: read & write sobre el repo). Tiene cooldown de 5 min
+    porque /api/refresh es publico.
+
+    Devuelve 'dispatched' | 'cooldown' | 'disabled' | 'error'.
+    """
+    import httpx
+
+    global _last_dispatch
+    token = os.getenv("GITHUB_DISPATCH_TOKEN", "").strip()
+    if not token or not remote_agencies():
+        return "disabled"
+    now = datetime.now(timezone.utc)
+    if _last_dispatch and now - _last_dispatch < _REMOTE_COOLDOWN:
+        return "cooldown"
+    repo = os.getenv("GITHUB_REPO", "fvenanti/carcloud-spy")
+    try:
+        r = httpx.post(
+            f"https://api.github.com/repos/{repo}/actions/workflows/remote-scrape.yml/dispatches",
+            json={"ref": "main"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        log.error("No se pudo disparar el scrape remoto: %s", e)
+        return "error"
+    _last_dispatch = now
+    log.info("Scrape remoto disparado en GitHub Actions (%s)", ",".join(sorted(remote_agencies())))
+    return "dispatched"
+
+
 def persist_result(agencia_id: int, query: RateQuery, result: AdapterResult) -> int:
     """Guarda las quotes de una tanda (una agencia x un horizonte)."""
     rows = []

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 
 import database as db
-from scheduler import persist_result, run_all
+from scheduler import dispatch_remote_scrape, persist_result, remote_agencies, run_all
 from scrapers.base import AdapterResult, RateQuery, RateQuote
 from scrapers.promos import promo_from_ig_post
 
@@ -49,12 +49,23 @@ def runs(limit: int = 20):
 
 @router.post("/refresh")
 def refresh():
-    """Dispara una corrida manual (útil para testing/demo)."""
+    """Corrida manual: agencias locales ya mismo + dispara las remotas en GitHub.
+
+    `remote` indica si se disparo el workflow remoto; el front espera a que
+    lleguen esas tandas (poll de /api/runs) antes de recargar.
+    """
+    started_at = datetime.now(timezone.utc)
+    remote = dispatch_remote_scrape()
     try:
         run_all()
-        return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "status": "ok",
+        "remote": remote,
+        "remote_agencies": sorted(remote_agencies()),
+        "started_at": started_at.isoformat(),
+    }
 
 
 # ============================================================
